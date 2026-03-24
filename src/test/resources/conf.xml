@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Minimal conf.xml for running API module tests.
+     Both modules are registered here so ExistXmldbEmbeddedServer can find them. -->
+<exist xmlns="http://exist-db.org/Configuration"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://exist-db.org/Configuration https://www.exist-db.org/configuration.xsd">
+
+    <db-connection cacheSize="256M" collectionCache="256M" database="native"
+                   files="data" pageSize="4096" nodesBuffer="-1">
+        <default-permissions collection="0775" resource="0775"/>
+        <pool max="20" min="1" sync-period="120000" wait-before-shutdown="120000"/>
+        <recovery enabled="no" journal-dir="data"/>
+    </db-connection>
+
+    <xquery enable-java-binding="no" enable-query-rewriting="yes"
+            backwardCompatible="no" enforce-index-use="always"
+            raise-error-on-failed-retrieval="no">
+        <builtin-modules>
+            <module uri="http://exist-db.org/xquery/api"
+                    class="org.exist.xquery.modules.api.ApiModule"/>
+            <module uri="http://exist-db.org/xquery/lsp"
+                    class="org.exist.xquery.modules.api.lsp.LspModule"/>
+        </builtin-modules>
+    </xquery>
+
+</exist>

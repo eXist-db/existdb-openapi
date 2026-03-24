@@ -1,0 +1,658 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "eXist-db Platform API",
+        "version": "0.9.0-SNAPSHOT",
+        "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
+        "license": {
+            "name": "LGPL-2.1",
+            "url": "https://opensource.org/licenses/LGPL-2.1"
+        }
+    },
+    "servers": [
+        {
+            "url": "/exist/apps/exist-api",
+            "description": "Local eXist-db instance"
+        }
+    ],
+    "paths": {
+        "/api/query": {
+            "post": {
+                "summary": "Execute query and return cursor",
+                "operationId": "query:execute",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["query"],
+                                "properties": {
+                                    "query": { "type": "string", "description": "XQuery expression to evaluate" },
+                                    "module-load-path": { "type": "string", "description": "Module load path for resolving imports" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Query executed successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "cursor": { "type": "string" },
+                                        "items": { "type": "integer" },
+                                        "elapsed": { "type": "integer" },
+                                        "timing": {
+                                            "type": "object",
+                                            "properties": {
+                                                "compile": { "type": "integer" },
+                                                "evaluate": { "type": "integer" },
+                                                "total": { "type": "integer" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/query/{id}/results": {
+            "get": {
+                "summary": "Fetch page of results from cursor",
+                "operationId": "query:fetch",
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+                    { "name": "start", "in": "query", "schema": { "type": "integer", "default": 1 } },
+                    { "name": "count", "in": "query", "schema": { "type": "integer", "default": 10 } },
+                    { "name": "method", "in": "query", "schema": { "type": "string", "default": "adaptive" } },
+                    { "name": "indent", "in": "query", "schema": { "type": "string", "default": "yes" } }
+                ],
+                "responses": {
+                    "200": { "description": "Results page" }
+                }
+            }
+        },
+        "/api/query/{id}": {
+            "delete": {
+                "summary": "Close cursor and release resources",
+                "operationId": "query:close",
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Cursor closed" }
+                }
+            }
+        },
+        "/api/query/{id}/cancel": {
+            "post": {
+                "summary": "Cancel running query",
+                "operationId": "query:cancel",
+                "parameters": [
+                    { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Query cancelled" }
+                }
+            }
+        },
+        "/api/lsp/diagnostics": {
+            "post": {
+                "summary": "Compile check",
+                "operationId": "lsp:diagnostics",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Diagnostics array" }
+                }
+            }
+        },
+        "/api/lsp/completions": {
+            "post": {
+                "summary": "Code completions",
+                "operationId": "lsp:completions",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Completions array" }
+                }
+            }
+        },
+        "/api/lsp/hover": {
+            "post": {
+                "summary": "Hover info",
+                "operationId": "lsp:hover",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression", "line", "column"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "line": { "type": "integer" },
+                                    "column": { "type": "integer" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Hover info map" }
+                }
+            }
+        },
+        "/api/lsp/definition": {
+            "post": {
+                "summary": "Go to definition",
+                "operationId": "lsp:definition",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression", "line", "column"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "line": { "type": "integer" },
+                                    "column": { "type": "integer" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Definition location map" }
+                }
+            }
+        },
+        "/api/lsp/references": {
+            "post": {
+                "summary": "Find all references",
+                "operationId": "lsp:references",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression", "line", "column"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "line": { "type": "integer" },
+                                    "column": { "type": "integer" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "References array" }
+                }
+            }
+        },
+        "/api/lsp/symbols": {
+            "post": {
+                "summary": "Document symbols",
+                "operationId": "lsp:symbols",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["expression"],
+                                "properties": {
+                                    "expression": { "type": "string" },
+                                    "module-load-path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Symbols array" }
+                }
+            }
+        },
+        "/api/db": {
+            "get": {
+                "summary": "List collection contents",
+                "operationId": "db:list",
+                "parameters": [
+                    { "name": "path", "in": "query", "schema": { "type": "string", "default": "/db" } }
+                ],
+                "responses": {
+                    "200": { "description": "Collection listing" }
+                }
+            }
+        },
+        "/api/db/resource": {
+            "get": {
+                "summary": "Get resource content",
+                "operationId": "db:get-resource",
+                "parameters": [
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Resource content" }
+                }
+            },
+            "put": {
+                "summary": "Store resource",
+                "operationId": "db:store-resource",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["path", "content"],
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "content": { "type": "string" },
+                                    "mime-type": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Resource stored" }
+                }
+            },
+            "delete": {
+                "summary": "Remove resource",
+                "operationId": "db:remove-resource",
+                "parameters": [
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Resource removed" }
+                }
+            }
+        },
+        "/api/db/collection": {
+            "post": {
+                "summary": "Create collection",
+                "operationId": "db:create-collection",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["path"],
+                                "properties": {
+                                    "path": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": { "description": "Collection created" }
+                }
+            },
+            "delete": {
+                "summary": "Remove collection",
+                "operationId": "db:remove-collection",
+                "parameters": [
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Collection removed" }
+                }
+            }
+        },
+        "/api/db/move": {
+            "post": {
+                "summary": "Move resource or collection",
+                "operationId": "db:move",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["source", "target"],
+                                "properties": {
+                                    "source": { "type": "string" },
+                                    "target": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Moved successfully" }
+                }
+            }
+        },
+        "/api/db/copy": {
+            "post": {
+                "summary": "Copy resource or collection",
+                "operationId": "db:copy",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["source", "target"],
+                                "properties": {
+                                    "source": { "type": "string" },
+                                    "target": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Copied successfully" }
+                }
+            }
+        },
+        "/api/db/properties": {
+            "get": {
+                "summary": "Get resource/collection properties",
+                "operationId": "db:properties",
+                "parameters": [
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Properties map" }
+                }
+            }
+        },
+        "/api/db/permissions": {
+            "post": {
+                "summary": "Set permissions",
+                "operationId": "db:set-permissions",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["path"],
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "owner": { "type": "string" },
+                                    "group": { "type": "string" },
+                                    "mode": { "type": "string" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Permissions updated" }
+                }
+            }
+        },
+        "/api/users": {
+            "get": {
+                "summary": "List all users",
+                "operationId": "users:list",
+                "responses": {
+                    "200": { "description": "Users array" }
+                }
+            },
+            "post": {
+                "summary": "Create user",
+                "operationId": "users:create",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "password"],
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "password": { "type": "string" },
+                                    "groups": { "type": "array", "items": { "type": "string" } }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": { "description": "User created" }
+                }
+            }
+        },
+        "/api/users/{name}": {
+            "get": {
+                "summary": "Get user details",
+                "operationId": "users:get",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "User details" }
+                }
+            },
+            "put": {
+                "summary": "Update user",
+                "operationId": "users:update",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "password": { "type": "string" },
+                                    "groups": { "type": "array", "items": { "type": "string" } }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "User updated" }
+                }
+            },
+            "delete": {
+                "summary": "Remove user",
+                "operationId": "users:remove",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "User removed" }
+                }
+            }
+        },
+        "/api/groups": {
+            "get": {
+                "summary": "List all groups",
+                "operationId": "users:list-groups",
+                "responses": {
+                    "200": { "description": "Groups array" }
+                }
+            },
+            "post": {
+                "summary": "Create group",
+                "operationId": "users:create-group",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name"],
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "managers": { "type": "array", "items": { "type": "string" } }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": { "description": "Group created" }
+                }
+            }
+        },
+        "/api/groups/{name}": {
+            "delete": {
+                "summary": "Remove group",
+                "operationId": "users:remove-group",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Group removed" }
+                }
+            }
+        },
+        "/api/packages": {
+            "get": {
+                "summary": "List installed packages",
+                "operationId": "packages:list",
+                "responses": {
+                    "200": { "description": "Packages array" }
+                }
+            }
+        },
+        "/api/packages/install": {
+            "post": {
+                "summary": "Install package",
+                "operationId": "packages:install",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "url": { "type": "string" }
+                                }
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file": { "type": "string", "format": "binary" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Package installed" }
+                }
+            }
+        },
+        "/api/packages/{name}": {
+            "get": {
+                "summary": "Package details",
+                "operationId": "packages:get",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Package details" }
+                }
+            },
+            "delete": {
+                "summary": "Remove package",
+                "operationId": "packages:remove",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Package removed" }
+                }
+            }
+        },
+        "/api/packages/update-check": {
+            "post": {
+                "summary": "Check for package updates",
+                "operationId": "packages:update-check",
+                "responses": {
+                    "200": { "description": "Update availability info" }
+                }
+            }
+        },
+        "/api/search": {
+            "get": {
+                "summary": "Sitewide search",
+                "operationId": "search:query",
+                "parameters": [
+                    { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+                    { "name": "app", "in": "query", "schema": { "type": "string" } },
+                    { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
+                ],
+                "responses": {
+                    "200": { "description": "Search results" }
+                }
+            }
+        },
+        "/api/site/apps": {
+            "get": {
+                "summary": "List installed apps",
+                "operationId": "site:apps",
+                "responses": {
+                    "200": { "description": "Apps array" }
+                }
+            }
+        },
+        "/api/site/resolve": {
+            "get": {
+                "summary": "Resolve cross-app link",
+                "operationId": "site:resolve",
+                "parameters": [
+                    { "name": "app", "in": "query", "required": true, "schema": { "type": "string" } },
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": { "description": "Resolved URL" }
+                }
+            }
+        }
+    }
+}

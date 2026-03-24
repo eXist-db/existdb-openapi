@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.exist-db</groupId>
+        <artifactId>exist-apps-parent</artifactId>
+        <version>2.0.0</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>org.exist-db</groupId>
+    <artifactId>exist-api</artifactId>
+    <version>0.9.0-SNAPSHOT</version>
+
+    <name>Platform API Module</name>
+    <description>Unified platform API for eXist-db: database management, query execution, language services, user management, package management, search, and cross-app linking</description>
+    <url>https://github.com/eXist-db/exist-api</url>
+
+    <organization>
+        <name>The eXist-db Authors</name>
+        <url>https://exist-db.org</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>GNU Lesser General Public License, version 2.1</name>
+            <url>https://opensource.org/licenses/LGPL-2.1</url>
+        </license>
+    </licenses>
+
+    <scm>
+        <url>https://github.com/eXist-db/exist-api.git</url>
+        <connection>scm:git:https://github.com/eXist-db/exist-api.git</connection>
+        <developerConnection>scm:git:https://github.com/eXist-db/exist-api.git</developerConnection>
+    </scm>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.build.source>21</project.build.source>
+        <project.build.target>21</project.build.target>
+
+        <exist.version>7.0.0-SNAPSHOT</exist.version>
+
+        <!-- used in the EXPath Package Descriptor -->
+        <package-name>http://exist-db.org/pkg/api</package-name>
+        <package-abbrev>exist-api</package-abbrev>
+
+        <!-- primary API module -->
+        <api.module.namespace>http://exist-db.org/xquery/api</api.module.namespace>
+        <api.module.java.classname>org.exist.xquery.modules.api.ApiModule</api.module.java.classname>
+
+        <!-- backward-compatible LSP module -->
+        <lsp.module.namespace>http://exist-db.org/xquery/lsp</lsp.module.namespace>
+        <lsp.module.java.classname>org.exist.xquery.modules.api.lsp.LspModule</lsp.module.java.classname>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.exist-db</groupId>
+            <artifactId>exist-core</artifactId>
+            <version>${exist.version}</version>
+            <scope>provided</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>xalan</groupId>
+                    <artifactId>xalan</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>xalan</groupId>
+                    <artifactId>serializer</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fifesoft</groupId>
+                    <artifactId>rsyntaxtextarea</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+    </dependencies>
+
+    <profiles>
+        <!-- Integration tests require exist-core installed locally (mvn install from exist repo).
+             Activate with: mvn test -Pintegration-tests -->
+        <profile>
+            <id>integration-tests</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.exist-db</groupId>
+                    <artifactId>exist-core</artifactId>
+                    <version>${exist.version}</version>
+                    <type>test-jar</type>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.exist-db</groupId>
+                    <artifactId>exist-start</artifactId>
+                    <version>${exist.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>junit</groupId>
+                    <artifactId>junit</artifactId>
+                    <version>4.13.2</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>ro.kuberam.maven.plugins</groupId>
+                <artifactId>kuberam-expath-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>exist-db</id>
+            <name>eXist-db Releases</name>
+            <url>https://repo.exist-db.org/repository/exist-db/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+        <repository>
+            <id>exist-db-snapshots</id>
+            <name>eXist-db Snapshots</name>
+            <url>https://repo.exist-db.org/repository/exist-db-snapshots/</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+</project>

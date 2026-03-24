@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://expath.org/ns/pkg"
+         name="${package-name}"
+         abbrev="${package-abbrev}"
+         version="${project.version}"
+         spec="1.0">
+    <title>${project.name}</title>
+    <description>${project.description}</description>
+    <author id="exist-db">${project.organization.name}</author>
+    <website>${project.url}</website>
+    <license>GNU Lesser General Public License, version 2.1</license>
+    <copyright>true</copyright>
+
+    <type>library</type>
+
+    <status>stable</status>
+
+    <tag>exist-api</tag>
+    <tag>platform-api</tag>
+    <tag>rest</tag>
+    <tag>xquery</tag>
+    <category id="libs">Libraries</category>
+
+    <dependency processor="http://exist-db.org" semver-min="7.0.0"/>
+
+    <target>${package-abbrev}</target>
+
+    <fileSets>
+        <fileSet>
+            <directory>${basedir}</directory>
+            <includes>
+                <include>README.md</include>
+                <include>LICENSE</include>
+            </includes>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/content</directory>
+            <outputDirectory>content</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>${basedir}/test/xqs</directory>
+            <outputDirectory>test/xqs</outputDirectory>
+        </fileSet>
+    </fileSets>
+
+    <!-- include the Java module JAR from this project -->
+    <dependencySets>
+        <dependencySet>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>${project.artifactId}</artifactId>
+            <version>${project.version}</version>
+        </dependencySet>
+    </dependencySets>
+
+    <!-- register Java modules to eXist-db -->
+    <components>
+        <resource>
+            <public-uri>${api.module.namespace}</public-uri>
+            <file>urn:java:class:${api.module.java.classname}</file>
+        </resource>
+        <resource>
+            <public-uri>${lsp.module.namespace}</public-uri>
+            <file>urn:java:class:${lsp.module.java.classname}</file>
+        </resource>
+    </components>
+
+    <changelog>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.0-SNAPSHOT">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Initial release — absorbs exist-lsp, adds REST API for db, users, packages, search, site</li>
+            </ul>
+        </change>
+    </changelog>
+</package>

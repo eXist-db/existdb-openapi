@@ -1,0 +1,26 @@
+{
+    "servers": {
+        "localhost": {
+            "server": "http://localhost:8080/exist/xmlrpc",
+            "user": "admin",
+            "password": "",
+            "root": "/db/system/repo/exist-api"
+        }
+    },
+    "sync": {
+        "server": "localhost",
+        "dir": ".",
+        "ignore": [
+            ".existdb.json",
+            ".git/**",
+            "node_modules/**",
+            "*.xpr",
+            "package*.json",
+            ".vscode/**",
+            "target/**"
+        ]
+    },
+    "namespace": "http://exist-db.org/apps/api",
+    "status": "stable",
+    "license": "LGPL-2.1"
+}
