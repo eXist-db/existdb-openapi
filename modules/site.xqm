@@ -38,6 +38,9 @@ declare function site:apps($request as map(*)) {
             "title": string(($meta/expath:title, $abbrev)[1]),
             "version": string(($meta/@version, "")[1]),
             "url": "/exist/apps/" || $abbrev || "/",
+            (: TODO: replace with repo:resource-available($pkg, "icon.png") once
+             : eXist-db PR #6184 is merged and released.
+             : See https://github.com/eXist-db/exist/issues/3904 :)
             "icon":
                 if (try { exists(repo:get-resource($pkg, "icon.png")) } catch * { false() })
                 then "/exist/apps/" || $abbrev || "/icon.png"

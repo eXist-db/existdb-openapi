@@ -485,7 +485,7 @@
                     }
                 },
                 "responses": {
-                    "201": {
+                    "200": {
                         "description": "Collection created",
                         "content": {
                             "application/json": {
@@ -699,7 +699,7 @@
                     }
                 },
                 "responses": {
-                    "201": {
+                    "200": {
                         "description": "User created",
                         "content": {
                             "application/json": {
@@ -810,7 +810,7 @@
                     }
                 },
                 "responses": {
-                    "201": {
+                    "200": {
                         "description": "Group created",
                         "content": {
                             "application/json": {

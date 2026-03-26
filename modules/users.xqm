@@ -81,11 +81,10 @@ declare function users:create($request as map(*)) {
     return
         if (empty($name) or empty($password))
         then map { "error": "Missing required fields: name, password" }
-        else (
-            sm:create-account($name, $password, $name,
-                if (exists($groups)) then $groups?* else ()),
-            map { "created": $name }
-        )
+        else
+            let $_ := sm:create-account($name, $password, $name,
+                if (exists($groups)) then $groups?* else ())
+            return map { "created": $name }
 };
 
 (:~
@@ -98,20 +97,21 @@ declare function users:update($request as map(*)) {
     return
         if (not($name = sm:list-users()))
         then map { "error": "User not found: " || $name }
-        else (
-            if ($body?password)
-            then sm:passwd($name, $body?password)
-            else (),
-            if (exists($body?groups))
-            then
-                for $group in $body?groups?*
-                return
-                    if (not($group = sm:get-user-groups($name)))
-                    then sm:add-group-member($group, $name)
-                    else ()
-            else (),
-            map { "updated": $name }
-        )
+        else
+            let $_ := (
+                if ($body?password)
+                then sm:passwd($name, $body?password)
+                else (),
+                if (exists($body?groups))
+                then
+                    for $group in $body?groups?*
+                    return
+                        if (not($group = sm:get-user-groups($name)))
+                        then sm:add-group-member($group, $name)
+                        else ()
+                else ()
+            )
+            return map { "updated": $name }
 };
 
 (:~
@@ -120,10 +120,12 @@ declare function users:update($request as map(*)) {
  :)
 declare function users:remove($request as map(*)) {
     let $name := $request?parameters?name
-    return (
-        sm:remove-account($name),
-        map { "removed": $name }
-    )
+    return
+        if (not($name = sm:list-users()))
+        then map { "error": "User not found: " || $name }
+        else
+            let $_ := sm:remove-account($name)
+            return map { "removed": $name }
 };
 
 (:~
@@ -153,11 +155,15 @@ declare function users:create-group($request as map(*)) {
     return
         if (empty($name))
         then map { "error": "Missing required field: name" }
-        else (
-            sm:create-group($name,
-                if (exists($managers)) then $managers?* else ()),
-            map { "created": $name }
-        )
+        else
+            let $_ := sm:create-group($name)
+            let $_ :=
+                if (exists($managers))
+                then
+                    for $mgr in $managers?*
+                    return sm:add-group-manager($name, $mgr)
+                else ()
+            return map { "created": $name }
 };
 
 (:~
@@ -166,8 +172,10 @@ declare function users:create-group($request as map(*)) {
  :)
 declare function users:remove-group($request as map(*)) {
     let $name := $request?parameters?name
-    return (
-        sm:remove-group($name),
-        map { "removed": $name }
-    )
+    return
+        if (not($name = sm:list-groups()))
+        then map { "error": "Group not found: " || $name }
+        else
+            let $_ := sm:remove-group($name)
+            return map { "removed": $name }
 };

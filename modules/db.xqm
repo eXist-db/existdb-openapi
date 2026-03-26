@@ -183,7 +183,7 @@ declare function db:get-resource($request as map(*)) {
             let $data := util:binary-doc($path)
             return map {
                 "path": $path,
-                "binary": true,
+                "binary": true(),
                 "content": util:binary-to-string($data),
                 "mime-type": xmldb:get-mime-type(xs:anyURI($path))
             }
@@ -191,7 +191,7 @@ declare function db:get-resource($request as map(*)) {
             let $doc := doc($path)
             return map {
                 "path": $path,
-                "binary": false,
+                "binary": false(),
                 "content": serialize($doc),
                 "mime-type": xmldb:get-mime-type(xs:anyURI($path))
             }
@@ -237,13 +237,13 @@ declare function db:remove-resource($request as map(*)) {
         then map { "error": "Missing required parameter: path" }
         else if (db:is-protected($path))
         then map { "error": "Cannot delete protected path: " || $path }
+        else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
+        then map { "error": "Resource not found: " || $path }
         else
             let $collection := replace($path, "/[^/]+$", "")
             let $resource := replace($path, "^.*/", "")
-            return (
-                xmldb:remove($collection, $resource),
-                map { "removed": $path }
-            )
+            let $_ := xmldb:remove($collection, $resource)
+            return map { "removed": $path }
 };
 
 (:~
@@ -288,10 +288,9 @@ declare function db:remove-collection($request as map(*)) {
             return
                 if ($has-children and not($force))
                 then map { "error": "Collection is not empty: " || $path || ". Use force=true to delete recursively." }
-                else (
-                    xmldb:remove($path),
-                    map { "removed": $path }
-                )
+                else
+                    let $_ := xmldb:remove($path)
+                    return map { "removed": $path }
 };
 
 (:~
@@ -306,17 +305,14 @@ declare function db:move($request as map(*)) {
         if (empty($source) or empty($target))
         then map { "error": "Missing required fields: source, target" }
         else if (xmldb:collection-available($source))
-        then (
-            xmldb:move($source, $target),
-            map { "moved": $source, "to": $target }
-        )
+        then
+            let $_ := xmldb:move($source, $target)
+            return map { "moved": $source, "to": $target }
         else
             let $src-collection := replace($source, "/[^/]+$", "")
             let $src-resource := replace($source, "^.*/", "")
-            return (
-                xmldb:move($src-collection, $target, $src-resource),
-                map { "moved": $source, "to": $target }
-            )
+            let $_ := xmldb:move($src-collection, $target, $src-resource)
+            return map { "moved": $source, "to": $target }
 };
 
 (:~
@@ -331,17 +327,14 @@ declare function db:copy($request as map(*)) {
         if (empty($source) or empty($target))
         then map { "error": "Missing required fields: source, target" }
         else if (xmldb:collection-available($source))
-        then (
-            xmldb:copy-collection($source, $target),
-            map { "copied": $source, "to": $target }
-        )
+        then
+            let $_ := xmldb:copy-collection($source, $target)
+            return map { "copied": $source, "to": $target }
         else
             let $src-collection := replace($source, "/[^/]+$", "")
             let $src-resource := replace($source, "^.*/", "")
-            return (
-                xmldb:copy-resource($src-collection, $src-resource, $target, $src-resource),
-                map { "copied": $source, "to": $target }
-            )
+            let $_ := xmldb:copy-resource($src-collection, $src-resource, $target, $src-resource)
+            return map { "copied": $source, "to": $target }
 };
 
 (:~
