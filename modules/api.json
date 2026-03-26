@@ -96,6 +96,53 @@
                 "tags": ["System"]
             }
         },
+        "/api/test": {
+            "post": {
+                "summary": "Run XQSuite tests",
+                "operationId": "system-api:test",
+                "description": "Runs XQSuite tests on a stored XQuery module. Returns the test results as HTML.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["source"],
+                                "properties": {
+                                    "source": { "type": "string", "description": "DB path to the XQSuite test module" }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Test results",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/query": {
             "post": {
                 "summary": "Execute query and return cursor",
@@ -414,6 +461,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             }
@@ -428,6 +483,14 @@
                 "responses": {
                     "200": {
                         "description": "Resource content",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -457,7 +520,23 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Resource stored",
+                        "description": "Resource updated",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Resource created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -475,6 +554,22 @@
                 "responses": {
                     "200": {
                         "description": "Resource removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -503,8 +598,16 @@
                     }
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Collection created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -523,6 +626,30 @@
                 "responses": {
                     "200": {
                         "description": "Collection removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -559,6 +686,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             }
@@ -590,6 +725,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             }
@@ -604,6 +747,43 @@
                 "responses": {
                     "200": {
                         "description": "Properties map",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/db/sync": {
+            "get": {
+                "summary": "Sync tree with timestamps",
+                "operationId": "db:sync",
+                "description": "Returns a collection tree with lastModified timestamps. Supports incremental sync by filtering to resources modified after a given timestamp.",
+                "parameters": [
+                    { "name": "root", "in": "query", "schema": { "type": "string", "default": "/db" }, "description": "Collection root path" },
+                    { "name": "timestamp", "in": "query", "schema": { "type": "string" }, "description": "ISO datetime — only return resources modified after this time" }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Sync tree",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -640,6 +820,36 @@
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/modules": {
+            "get": {
+                "summary": "Discover importable modules",
+                "operationId": "db:modules",
+                "description": "Returns importable modules from package-local files, mapped modules, and registered built-in modules. Used by IDE tools for import suggestions.",
+                "parameters": [
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Current file's DB path (used to find package root)" },
+                    { "name": "prefix", "in": "query", "schema": { "type": "string" }, "description": "Filter by module prefix" },
+                    { "name": "uri", "in": "query", "schema": { "type": "string" }, "description": "Already-imported URIs to exclude (comma-separated)" }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Array of importable modules",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
                             }
                         }
                     }
@@ -717,8 +927,16 @@
                     }
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "User created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -738,6 +956,14 @@
                 "responses": {
                     "200": {
                         "description": "User details",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -773,6 +999,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             },
@@ -785,6 +1019,22 @@
                 "responses": {
                     "200": {
                         "description": "User removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -828,8 +1078,16 @@
                     }
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Group created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -840,6 +1098,31 @@
             }
         },
         "/api/groups/{name}": {
+            "get": {
+                "summary": "Get group details",
+                "operationId": "users:get-group",
+                "parameters": [
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Group details",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
+                }
+            },
             "delete": {
                 "summary": "Remove group",
                 "operationId": "users:remove-group",
@@ -849,6 +1132,22 @@
                 "responses": {
                     "200": {
                         "description": "Group removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }
@@ -909,6 +1208,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             }
@@ -928,6 +1235,14 @@
                                 "schema": { "type": "object" }
                             }
                         }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
                     }
                 }
             },
@@ -941,6 +1256,22 @@
                 "responses": {
                     "200": {
                         "description": "Package removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "content": {
                             "application/json": {
                                 "schema": { "type": "object" }

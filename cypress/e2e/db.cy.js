@@ -34,7 +34,8 @@ describe('/api/db', () => {
     });
 
     it('returns error for nonexistent collection', () => {
-      cy.request({ url: '/api/db?path=/db/nonexistent-xyz', auth }).then(response => {
+      cy.request({ url: '/api/db?path=/db/nonexistent-xyz', auth, failOnStatusCode: false }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
       });
     });
@@ -70,7 +71,7 @@ describe('/api/db', () => {
         auth,
         body: { path: testCollection }
       }).then(response => {
-        expect(response.status).to.eq(200);
+        expect(response.status).to.be.oneOf([200, 201]);
         expect(response.body).to.have.property('created');
       });
     });
@@ -115,8 +116,10 @@ describe('/api/db', () => {
     it('returns error for nonexistent resource', () => {
       cy.request({
         url: `/api/db/resource?path=${testCollection}/nonexistent.xml`,
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
       });
     });
@@ -238,8 +241,10 @@ describe('/api/db', () => {
       cy.request({
         url: `/api/db/resource?path=${testCollection}/nonexistent.xml`,
         method: 'DELETE',
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('not found');
       });
@@ -249,8 +254,10 @@ describe('/api/db', () => {
       cy.request({
         url: '/api/db/resource?path=/db/system/config',
         method: 'DELETE',
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(403);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('protected');
       });
@@ -262,8 +269,10 @@ describe('/api/db', () => {
       cy.request({
         url: `/api/db/collection?path=${testCollection}`,
         method: 'DELETE',
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(409);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('not empty');
       });

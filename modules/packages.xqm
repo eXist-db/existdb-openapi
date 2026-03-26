@@ -7,6 +7,8 @@ xquery version "3.1";
  :)
 module namespace packages="http://exist-db.org/api/packages";
 
+import module namespace roaster="http://e-editiones.org/roaster";
+
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare namespace expath="http://expath.org/ns/pkg";
 declare namespace repo="http://exist-db.org/xquery/repo";
@@ -201,7 +203,7 @@ declare function packages:get($request as map(*)) {
     let $name := packages:resolve-name($name-or-abbrev)
     return
         if (empty($name))
-        then map { "error": "Package not found: " || $name-or-abbrev }
+        then roaster:response(404, map { "error": "Package not found: " || $name-or-abbrev })
         else packages:full-meta($name)
 };
 

@@ -6,6 +6,10 @@ xquery version "3.1";
  :)
 module namespace system-api="http://exist-db.org/api/system";
 
+import module namespace roaster="http://e-editiones.org/roaster";
+import module namespace test="http://exist-db.org/xquery/xqsuite"
+    at "resource:org/exist/xquery/lib/xqsuite/xqsuite.xql";
+
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare namespace scheduler="http://exist-db.org/xquery/scheduler";
 
@@ -64,4 +68,31 @@ declare function system-api:scheduler($request as map(*)) {
             }
         }
     }
+};
+
+(:~
+ : Run XQSuite tests.
+ : POST /api/test
+ :
+ : Accepts { "source": "/db/apps/myapp/test/suite.xql" } and runs
+ : test:suite() on the module. Returns the XQSuite results.
+ :)
+declare function system-api:test($request as map(*)) {
+    let $source := $request?body?source
+    return
+        if (empty($source))
+        then roaster:response(400, map { "error": "Missing required field: source" })
+        else if (not(util:binary-doc-available(xs:anyURI("xmldb:exist://" || $source))))
+        then roaster:response(404, map { "error": "Test module not found: " || $source })
+        else
+            let $functions := inspect:module-functions(xs:anyURI("xmldb:exist://" || $source))
+            let $results := test:suite($functions)
+            return map {
+                "source": $source,
+                "tests": count($results//testcase),
+                "failures": count($results//testcase/failure),
+                "errors": count($results//testcase/error),
+                "pending": count($results//testcase[@pending = 'true']),
+                "results": serialize($results)
+            }
 };

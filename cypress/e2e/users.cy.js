@@ -45,7 +45,7 @@ describe('/api/users', () => {
         auth,
         body: { name: testUser, password: 'test123' }
       }).then(response => {
-        expect(response.status).to.eq(200);
+        expect(response.status).to.eq(201);
         expect(response.body).to.have.property('created', testUser);
       });
 
@@ -107,8 +107,10 @@ describe('/api/users', () => {
       // Verify deleted
       cy.request({
         url: `/api/users/${testUser}`,
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
       });
     });
@@ -118,8 +120,10 @@ describe('/api/users', () => {
     it('returns error for nonexistent user', () => {
       cy.request({
         url: '/api/users/nonexistent-user-xyz',
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('not found');
       });
@@ -159,7 +163,7 @@ describe('/api/groups', () => {
         auth,
         body: { name: testGroup }
       }).then(response => {
-        expect(response.status).to.eq(200);
+        expect(response.status).to.eq(201);
         expect(response.body).to.have.property('created', testGroup);
       });
 

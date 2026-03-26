@@ -19,13 +19,15 @@ describe('/api/packages', () => {
   });
 
   describe('GET /api/packages/{name}', () => {
-    it('gets package details by URI', () => {
+    it('gets package details by abbreviation with full metadata', () => {
       cy.request({
-        url: '/api/packages/http%3A%2F%2Fexist-db.org%2Fpkg%2Fapi',
+        url: '/api/packages/exist-api',
         auth
       }).then(response => {
         expect(response.body.abbrev).to.eq('exist-api');
         expect(response.body).to.have.property('components');
+        expect(response.body).to.have.property('version');
+        expect(response.body).to.have.property('name');
       });
     });
 
@@ -41,8 +43,10 @@ describe('/api/packages', () => {
     it('returns error for nonexistent package', () => {
       cy.request({
         url: '/api/packages/nonexistent-package-xyz',
-        auth
+        auth,
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
       });
     });
@@ -99,7 +103,7 @@ describe('/api/packages', () => {
     it('reports dependents when they exist', () => {
       // semver-xq has dependents (packageservice depends on it)
       cy.request({
-        url: '/api/packages/http%3A%2F%2Fexist-db.org%2Fxquery%2Fsemver-xq',
+        url: '/api/packages/semver-xq',
         method: 'DELETE',
         auth
       }).then(response => {
