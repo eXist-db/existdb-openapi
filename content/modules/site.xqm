@@ -21,13 +21,11 @@ declare function site:apps($request as map(*)) {
     array {
         for $pkg in repo:list()
         let $desc := repo:get-resource($pkg, "expath-pkg.xml")
-        let $meta :=
-            if ($desc)
-            then parse-xml(util:binary-to-string($desc))/expath:package
-            else ()
+        where exists($desc)
+        let $meta := parse-xml(util:binary-to-string($desc))/expath:package
         let $repo-desc := repo:get-resource($pkg, "repo.xml")
         let $repo-meta :=
-            if ($repo-desc)
+            if (exists($repo-desc))
             then parse-xml(util:binary-to-string($repo-desc))/*
             else ()
         (: Only include applications, not libraries :)
@@ -41,7 +39,7 @@ declare function site:apps($request as map(*)) {
             "version": string(($meta/@version, "")[1]),
             "url": "/exist/apps/" || $abbrev || "/",
             "icon":
-                if (repo:get-resource($pkg, "icon.png"))
+                if (try { exists(repo:get-resource($pkg, "icon.png")) } catch * { false() })
                 then "/exist/apps/" || $abbrev || "/icon.png"
                 else ""
         }

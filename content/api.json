@@ -15,7 +15,69 @@
             "description": "Local eXist-db instance"
         }
     ],
+    "components": {
+        "securitySchemes": {
+            "basicAuth": {
+                "type": "http",
+                "scheme": "basic"
+            },
+            "cookieAuth": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "org.exist.login.user"
+            }
+        }
+    },
+    "security": [
+        { "basicAuth": [] },
+        { "cookieAuth": [] }
+    ],
     "paths": {
+        "/api/system/info": {
+            "get": {
+                "summary": "Get system information",
+                "operationId": "system-api:info",
+                "description": "Returns database, Java, and OS information. No authentication required. Replaces xst's info.xq.",
+                "responses": {
+                    "200": {
+                        "description": "System information",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "db": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string" },
+                                                "version": { "type": "string" },
+                                                "git": { "type": "string" }
+                                            }
+                                        },
+                                        "java": {
+                                            "type": "object",
+                                            "properties": {
+                                                "version": { "type": "string" },
+                                                "vendor": { "type": "string" }
+                                            }
+                                        },
+                                        "os": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string" },
+                                                "version": { "type": "string" },
+                                                "arch": { "type": "string" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": ["System"]
+            }
+        },
         "/api/query": {
             "post": {
                 "summary": "Execute query and return cursor",
@@ -74,7 +136,14 @@
                     { "name": "indent", "in": "query", "schema": { "type": "string", "default": "yes" } }
                 ],
                 "responses": {
-                    "200": { "description": "Results page" }
+                    "200": {
+                        "description": "Results page",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -86,7 +155,14 @@
                     { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Cursor closed" }
+                    "200": {
+                        "description": "Cursor closed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -98,14 +174,21 @@
                     { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Query cancelled" }
+                    "200": {
+                        "description": "Query cancelled",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/diagnostics": {
             "post": {
                 "summary": "Compile check",
-                "operationId": "lsp:diagnostics",
+                "operationId": "lspapi:diagnostics",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -122,14 +205,21 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Diagnostics array" }
+                    "200": {
+                        "description": "Diagnostics array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/completions": {
             "post": {
                 "summary": "Code completions",
-                "operationId": "lsp:completions",
+                "operationId": "lspapi:completions",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -146,14 +236,21 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Completions array" }
+                    "200": {
+                        "description": "Completions array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/hover": {
             "post": {
                 "summary": "Hover info",
-                "operationId": "lsp:hover",
+                "operationId": "lspapi:hover",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -172,14 +269,21 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Hover info map" }
+                    "200": {
+                        "description": "Hover info map",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/definition": {
             "post": {
                 "summary": "Go to definition",
-                "operationId": "lsp:definition",
+                "operationId": "lspapi:definition",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -198,14 +302,21 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Definition location map" }
+                    "200": {
+                        "description": "Definition location map",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/references": {
             "post": {
                 "summary": "Find all references",
-                "operationId": "lsp:references",
+                "operationId": "lspapi:references",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -224,14 +335,21 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "References array" }
+                    "200": {
+                        "description": "References array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
         "/api/lsp/symbols": {
             "post": {
                 "summary": "Document symbols",
-                "operationId": "lsp:symbols",
+                "operationId": "lspapi:symbols",
                 "requestBody": {
                     "required": true,
                     "content": {
@@ -248,7 +366,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Symbols array" }
+                    "200": {
+                        "description": "Symbols array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -257,10 +382,21 @@
                 "summary": "List collection contents",
                 "operationId": "db:list",
                 "parameters": [
-                    { "name": "path", "in": "query", "schema": { "type": "string", "default": "/db" } }
+                    { "name": "path", "in": "query", "schema": { "type": "string", "default": "/db" } },
+                    { "name": "recursive", "in": "query", "description": "Enable recursive listing", "schema": { "type": "boolean", "default": false } },
+                    { "name": "depth", "in": "query", "description": "Max recursion depth (0=unlimited)", "schema": { "type": "integer", "default": 0 } },
+                    { "name": "glob", "in": "query", "description": "Glob pattern filter for resource names", "schema": { "type": "string" } },
+                    { "name": "collections-only", "in": "query", "description": "Only list collections", "schema": { "type": "boolean", "default": false } }
                 ],
                 "responses": {
-                    "200": { "description": "Collection listing" }
+                    "200": {
+                        "description": "Collection listing",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -272,7 +408,14 @@
                     { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Resource content" }
+                    "200": {
+                        "description": "Resource content",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "put": {
@@ -295,7 +438,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Resource stored" }
+                    "200": {
+                        "description": "Resource stored",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "delete": {
@@ -305,7 +455,14 @@
                     { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Resource removed" }
+                    "200": {
+                        "description": "Resource removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -328,17 +485,32 @@
                     }
                 },
                 "responses": {
-                    "201": { "description": "Collection created" }
+                    "201": {
+                        "description": "Collection created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "delete": {
                 "summary": "Remove collection",
                 "operationId": "db:remove-collection",
                 "parameters": [
-                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
+                    { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } },
+                    { "name": "force", "in": "query", "description": "Force removal of non-empty collections", "schema": { "type": "boolean", "default": false } }
                 ],
                 "responses": {
-                    "200": { "description": "Collection removed" }
+                    "200": {
+                        "description": "Collection removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -362,7 +534,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Moved successfully" }
+                    "200": {
+                        "description": "Moved successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -386,7 +565,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Copied successfully" }
+                    "200": {
+                        "description": "Copied successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -398,7 +584,14 @@
                     { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Properties map" }
+                    "200": {
+                        "description": "Properties map",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -424,8 +617,51 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Permissions updated" }
+                    "200": {
+                        "description": "Permissions updated",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
+            }
+        },
+        "/api/users/whoami": {
+            "get": {
+                "summary": "Get current user identity",
+                "operationId": "users:whoami",
+                "description": "Returns the real and effective user identities and group memberships. Also serves as a capability probe: a 200 response indicates exist-api is installed. Replaces xst's whoami.xq.",
+                "responses": {
+                    "200": {
+                        "description": "Current user identity",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "real": {
+                                            "type": "object",
+                                            "properties": {
+                                                "user": { "type": "string" },
+                                                "groups": { "type": "array", "items": { "type": "string" } }
+                                            }
+                                        },
+                                        "effective": {
+                                            "type": "object",
+                                            "properties": {
+                                                "user": { "type": "string" },
+                                                "groups": { "type": "array", "items": { "type": "string" } }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": ["Users"]
             }
         },
         "/api/users": {
@@ -433,7 +669,14 @@
                 "summary": "List all users",
                 "operationId": "users:list",
                 "responses": {
-                    "200": { "description": "Users array" }
+                    "200": {
+                        "description": "Users array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             },
             "post": {
@@ -456,7 +699,14 @@
                     }
                 },
                 "responses": {
-                    "201": { "description": "User created" }
+                    "201": {
+                        "description": "User created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -468,7 +718,14 @@
                     { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "User details" }
+                    "200": {
+                        "description": "User details",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "put": {
@@ -491,7 +748,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "User updated" }
+                    "200": {
+                        "description": "User updated",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "delete": {
@@ -501,7 +765,14 @@
                     { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "User removed" }
+                    "200": {
+                        "description": "User removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -510,7 +781,14 @@
                 "summary": "List all groups",
                 "operationId": "users:list-groups",
                 "responses": {
-                    "200": { "description": "Groups array" }
+                    "200": {
+                        "description": "Groups array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             },
             "post": {
@@ -532,7 +810,14 @@
                     }
                 },
                 "responses": {
-                    "201": { "description": "Group created" }
+                    "201": {
+                        "description": "Group created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -544,7 +829,14 @@
                     { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Group removed" }
+                    "200": {
+                        "description": "Group removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -553,7 +845,14 @@
                 "summary": "List installed packages",
                 "operationId": "packages:list",
                 "responses": {
-                    "200": { "description": "Packages array" }
+                    "200": {
+                        "description": "Packages array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -568,7 +867,9 @@
                             "schema": {
                                 "type": "object",
                                 "properties": {
-                                    "url": { "type": "string" }
+                                    "name": { "type": "string", "description": "Package name (URI) to install from registry" },
+                                    "url": { "type": "string", "description": "Registry find URL" },
+                                    "version": { "type": "string", "description": "Specific version to install (empty for latest)" }
                                 }
                             }
                         },
@@ -583,7 +884,14 @@
                     }
                 },
                 "responses": {
-                    "200": { "description": "Package installed" }
+                    "200": {
+                        "description": "Package installed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -595,17 +903,32 @@
                     { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Package details" }
+                    "200": {
+                        "description": "Package details",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             },
             "delete": {
                 "summary": "Remove package",
                 "operationId": "packages:remove",
                 "parameters": [
-                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } }
+                    { "name": "name", "in": "path", "required": true, "schema": { "type": "string" } },
+                    { "name": "force", "in": "query", "description": "Force removal even if dependents exist", "schema": { "type": "boolean", "default": false } }
                 ],
                 "responses": {
-                    "200": { "description": "Package removed" }
+                    "200": {
+                        "description": "Package removed",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -614,7 +937,14 @@
                 "summary": "Check for package updates",
                 "operationId": "packages:update-check",
                 "responses": {
-                    "200": { "description": "Update availability info" }
+                    "200": {
+                        "description": "Update availability info",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -628,7 +958,14 @@
                     { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } }
                 ],
                 "responses": {
-                    "200": { "description": "Search results" }
+                    "200": {
+                        "description": "Search results",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -637,7 +974,14 @@
                 "summary": "List installed apps",
                 "operationId": "site:apps",
                 "responses": {
-                    "200": { "description": "Apps array" }
+                    "200": {
+                        "description": "Apps array",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "array" }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -650,7 +994,14 @@
                     { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }
                 ],
                 "responses": {
-                    "200": { "description": "Resolved URL" }
+                    "200": {
+                        "description": "Resolved URL",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
                 }
             }
         }

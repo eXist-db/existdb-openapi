@@ -6,7 +6,7 @@
     <status>stable</status>
     <license>GNU Lesser General Public License, version 2.1</license>
     <copyright>true</copyright>
-    <type>library</type>
+    <type>application</type>
     <target>exist-api</target>
     <prepare/>
     <finish/>

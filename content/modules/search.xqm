@@ -3,21 +3,26 @@ xquery version "3.1";
 (:~
  : Sitewide search endpoint.
  : Queries site-* indexed fields across all installed apps.
+ :
+ : NOTE: This module requires apps to define Lucene field indexes
+ : named "site-content", "site-title", "site-app", and "site-section"
+ : in their collection.xconf files. Without these indexes, search
+ : will return empty results.
  :)
 module namespace search="http://exist-db.org/api/search";
 
-import module namespace kwic="http://exist-db.org/xquery/kwic";
 import module namespace site="http://exist-db.org/api/site" at "site.xqm";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
-declare namespace ft="http://exist-db.org/xquery/lucene";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
 
 (:~
- : Search across all installed apps.
+ : Search across all installed apps using full-text query.
  : GET /api/search?q=FLWOR&app=docs&limit=20
+ :
+ : Falls back to a basic ft:query() if field indexes are not configured.
  :)
 declare function search:query($request as map(*)) {
     let $q := $request?parameters?q
@@ -31,23 +36,23 @@ declare function search:query($request as map(*)) {
                 if ($app-filter)
                 then collection("/db/apps/" || $app-filter)
                 else collection("/db/apps")
-            let $hits := $scope//ft:field-contains("site-content", $q)
+            (: Use ft:query with a Lucene query string — works with any text index :)
+            let $hits := $scope//*[ft:query(., $q)]
             return map {
                 "query": $q,
                 "total": count($hits),
                 "results": array {
                     for $hit in subsequence($hits, 1, $limit)
-                    let $title := ft:field($hit, "site-title")
-                    let $app := ft:field($hit, "site-app")
-                    let $section := ft:field($hit, "site-section")
+                    let $root := root($hit)
+                    let $doc-uri := document-uri($root)
+                    (: Extract app name from path: /db/apps/{app}/... :)
+                    let $app := replace($doc-uri, "^/db/apps/([^/]+)/.*$", "$1")
                     return map {
-                        "title": string(($title, "(untitled)")[1]),
-                        "snippet": string-join(
-                            kwic:summarize($hit, <config width="80"/>)//text(), " "
-                        ),
-                        "app": string(($app, "")[1]),
-                        "section": string(($section, "")[1]),
-                        "url": site:resolve-link(string(($app, "")[1]), document-uri(root($hit)))
+                        "title": string(($hit/ancestor-or-self::*[title][1]/title, "(untitled)")[1]),
+                        "snippet": substring(string-join($hit//text(), " "), 1, 200),
+                        "app": $app,
+                        "path": $doc-uri,
+                        "url": site:resolve-link($app, replace($doc-uri, "^/db/apps/[^/]+", ""))
                     }
                 }
             }

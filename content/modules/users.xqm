@@ -12,6 +12,29 @@ declare option output:method "json";
 declare option output:media-type "application/json";
 
 (:~
+ : Get current user identity.
+ : GET /api/users/whoami
+ :
+ : Returns the real and effective user identities and group memberships.
+ : Replaces xst's whoami.xq module.
+ :)
+declare function users:whoami($request as map(*)) {
+    let $id := sm:id()
+    let $real := $id//sm:real
+    let $effective := $id//sm:effective
+    return map {
+        "real": map {
+            "user": string($real/sm:username),
+            "groups": array { $real/sm:groups/sm:group/string() }
+        },
+        "effective": map {
+            "user": string(($effective/sm:username, $real/sm:username)[1]),
+            "groups": array { ($effective/sm:groups, $real/sm:groups)[1]/sm:group/string() }
+        }
+    }
+};
+
+(:~
  : List all users.
  : GET /api/users
  :)
