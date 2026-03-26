@@ -66,6 +66,35 @@ describe('/api/packages', () => {
     });
   });
 
+  describe('POST /api/packages/update-check', () => {
+    it('checks for package updates', () => {
+      cy.request({
+        url: '/api/packages/update-check',
+        method: 'POST',
+        auth,
+        body: {},
+        timeout: 30000
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.have.property('registry');
+        expect(response.body).to.have.property('updates');
+        expect(response.body.updates).to.be.an('array');
+      });
+    });
+
+    it('accepts custom registry URL', () => {
+      cy.request({
+        url: '/api/packages/update-check',
+        method: 'POST',
+        auth,
+        body: { registry: 'https://exist-db.org/exist/apps/public-repo' },
+        timeout: 30000
+      }).then(response => {
+        expect(response.body.registry).to.eq('https://exist-db.org/exist/apps/public-repo');
+      });
+    });
+  });
+
   describe('DELETE /api/packages/{name}', () => {
     it('reports dependents when they exist', () => {
       // semver-xq has dependents (packageservice depends on it)

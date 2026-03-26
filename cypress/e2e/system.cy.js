@@ -35,4 +35,21 @@ describe('/api/system', () => {
       });
     });
   });
+
+  describe('GET /api/system/scheduler', () => {
+    it('returns scheduled jobs', () => {
+      cy.request({
+        url: '/api/system/scheduler',
+        auth: { username: 'admin', password: '' }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.have.property('jobs');
+        expect(response.body.jobs).to.be.an('array');
+        expect(response.body.jobs.length).to.be.greaterThan(0);
+        const job = response.body.jobs[0];
+        expect(job).to.have.property('name');
+        expect(job).to.have.property('group');
+      });
+    });
+  });
 });

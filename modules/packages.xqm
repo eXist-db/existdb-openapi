@@ -318,8 +318,48 @@ declare %private function packages:find-dependents($name as xs:string) as xs:str
 (:~
  : Check for package updates against public repository.
  : POST /api/packages/update-check
+ :
+ : Request body (optional): { "registry": "https://exist-db.org/exist/apps/public-repo" }
+ : If no body, uses the default public repo.
+ :
+ : For each installed package, queries the registry's /find endpoint
+ : with the package abbrev and the current processor version. If a newer
+ : version is available, includes it in the results.
+ :
+ : @return map with "updates" array of packages with available updates
  :)
 declare function packages:update-check($request as map(*)) {
-    (: TODO: implement update checking against public repo :)
-    map { "error": "Not yet implemented" }
+    let $registry := ($request?body?registry, "https://exist-db.org/exist/apps/public-repo")[1]
+    let $find-url := $registry || "/find"
+    let $processor := system:get-version()
+    return map {
+        "registry": $registry,
+        "updates": array {
+            for $pkg-uri in repo:list()
+            let $expath := packages:get-package-meta($pkg-uri, "expath-pkg.xml")
+            where exists($expath)
+            let $abbrev := $expath//@abbrev/string()
+            let $installed-version := $expath//expath:package/@version/string()
+            where $abbrev and $installed-version
+            (: Query registry for latest version :)
+            let $registry-response :=
+                try {
+                    let $query-url := $find-url || "?abbrev=" || encode-for-uri($abbrev)
+                        || "&amp;processor=http://exist-db.org"
+                        || "&amp;info=true"
+                        || "&amp;processorVersion=" || encode-for-uri($processor)
+                    return json-doc($query-url)
+                }
+                catch * { () }
+            where exists($registry-response) and not(exists($registry-response?error))
+            let $available-version := $registry-response?version
+            where $available-version and $available-version ne $installed-version
+            return map {
+                "name": $pkg-uri,
+                "abbrev": $abbrev,
+                "installed": $installed-version,
+                "available": $available-version
+            }
+        }
+    }
 };

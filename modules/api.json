@@ -78,6 +78,24 @@
                 "tags": ["System"]
             }
         },
+        "/api/system/scheduler": {
+            "get": {
+                "summary": "List scheduled jobs",
+                "operationId": "system-api:scheduler",
+                "description": "Returns all scheduled jobs from the eXist-db scheduler. Used by Dashboard's System tab.",
+                "responses": {
+                    "200": {
+                        "description": "Scheduled jobs",
+                        "content": {
+                            "application/json": {
+                                "schema": { "type": "object" }
+                            }
+                        }
+                    }
+                },
+                "tags": ["System"]
+            }
+        },
         "/api/query": {
             "post": {
                 "summary": "Execute query and return cursor",

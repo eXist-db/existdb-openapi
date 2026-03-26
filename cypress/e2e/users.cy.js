@@ -77,6 +77,24 @@ describe('/api/users', () => {
         expect(response.body.groups).to.include('guest');
       });
 
+      // Change password
+      cy.request({
+        url: `/api/users/${testUser}`,
+        method: 'PUT',
+        auth,
+        body: { password: 'newpass456' }
+      }).then(response => {
+        expect(response.body).to.have.property('updated', testUser);
+      });
+
+      // Verify new password works
+      cy.request({
+        url: '/api/users/whoami',
+        auth: { username: testUser, password: 'newpass456' }
+      }).then(response => {
+        expect(response.body.real.user).to.eq(testUser);
+      });
+
       // Delete
       cy.request({
         url: `/api/users/${testUser}`,
