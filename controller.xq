@@ -16,9 +16,16 @@ if ($exist:path eq "") then
         <redirect url="{request:get-uri()}/"/>
     </dispatch>
 
+else if (matches($exist:path, "^/+modules/.*\.json$")) then
+    (: serve OpenAPI spec files directly :)
+    <dispatch xmlns="http://exist.sourceforge.net/NS/exist"/>
+
 else if (starts-with($exist:path, "/api")) then
     <dispatch xmlns="http://exist.sourceforge.net/NS/exist">
-        <forward url="{$exist:controller}/api.xq">
+        <forward url="{$exist:controller}/modules/api.xq">
+            <set-header name="Access-Control-Allow-Origin" value="*"/>
+            <set-header name="Access-Control-Allow-Methods" value="GET, POST, DELETE, PUT, PATCH, OPTIONS"/>
+            <set-header name="Access-Control-Allow-Headers" value="Content-Type, Authorization"/>
             <set-header name="Cache-Control" value="no-cache"/>
         </forward>
     </dispatch>
