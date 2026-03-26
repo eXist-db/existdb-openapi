@@ -11,3 +11,5 @@ cypress/screenshots/
 cypress/videos/
 cypress/downloads/
 package-lock.json
+.existdb.json
+.env
