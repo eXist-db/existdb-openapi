@@ -35,7 +35,7 @@
             "cookieAuth": {
                 "type": "apiKey",
                 "in": "cookie",
-                "name": "org.exist.login.user"
+                "name": "org.exist.login"
             }
         },
         "schemas": {
