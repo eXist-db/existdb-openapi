@@ -13,3 +13,7 @@ cypress/downloads/
 package-lock.json
 .existdb.json
 .env
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md

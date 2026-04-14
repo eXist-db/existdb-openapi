@@ -30,7 +30,6 @@ import org.exist.xquery.XPathException;
 import org.exist.xquery.XQueryContext;
 import org.exist.xquery.functions.array.ArrayType;
 import org.exist.xquery.functions.map.MapType;
-import org.exist.xquery.value.AtomicValue;
 import org.exist.xquery.value.IntegerValue;
 import org.exist.xquery.value.Item;
 import org.exist.xquery.value.Sequence;
@@ -222,8 +221,18 @@ public class Fetch extends BasicFunction {
                 xqs.serialize(item.toSequence());
                 return writer.toString();
             } else {
-                // Atomic value — string representation
-                return item.getStringValue();
+                // Atomic value — delegate to XQuerySerializer (which uses AdaptiveWriter
+                // for method=adaptive). AdaptiveWriter correctly implements W3C adaptive
+                // serialization for all atomic types: xs:string/xs:anyURI/xs:untypedAtomic
+                // and all string subtypes are double-quoted with internal quotes doubled;
+                // xs:integer/xs:decimal are bare numbers; xs:boolean uses true()/false();
+                // xs:double uses exponential notation; all other types use typename("value").
+                final StringWriter writer = new StringWriter();
+                final org.exist.util.serializer.XQuerySerializer xqs =
+                        new org.exist.util.serializer.XQuerySerializer(
+                                context.getBroker(), props, writer);
+                xqs.serialize(item.toSequence());
+                return writer.toString();
             }
         } catch (final Exception e) {
             return item.getStringValue();
