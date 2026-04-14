@@ -21,8 +21,6 @@
  */
 package org.exist.xquery.modules.api.lsp;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.FunctionSignature;
 import org.exist.xquery.XPathException;
@@ -40,8 +38,6 @@ import static org.exist.xquery.FunctionDSL.*;
  * {@code false} if it had already expired or was not found.</p>
  */
 public class Close extends BasicFunction {
-
-    private static final Logger logger = LogManager.getLogger(Close.class);
 
     private static final String FS_CLOSE_NAME = "close";
     private static final String FS_CLOSE_DESCRIPTION = """
@@ -66,8 +62,6 @@ public class Close extends BasicFunction {
     @Override
     public Sequence eval(final Sequence[] args, final Sequence contextSequence) throws XPathException {
         final String cursorId = args[0].getStringValue();
-        final boolean existed = CursorStore.getInstance().get(cursorId) != null;
-        CursorStore.getInstance().remove(cursorId);
-        return BooleanValue.valueOf(existed);
+        return BooleanValue.valueOf(CursorStore.getInstance().remove(cursorId));
     }
 }

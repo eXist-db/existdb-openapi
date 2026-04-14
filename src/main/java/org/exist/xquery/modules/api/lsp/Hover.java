@@ -33,7 +33,6 @@ import org.exist.xquery.Expression;
 import org.exist.xquery.Function;
 import org.exist.xquery.FunctionCall;
 import org.exist.xquery.FunctionSignature;
-import org.exist.xquery.InternalFunctionCall;
 import org.exist.xquery.PathExpr;
 import org.exist.xquery.UserDefinedFunction;
 import org.exist.xquery.VariableReference;
@@ -181,18 +180,17 @@ public class Hover extends BasicFunction {
 
     private Sequence buildHoverResult(final Expression expr) throws XPathException {
         if (expr instanceof final FunctionCall call) {
-            return buildFunctionHover(call.getSignature(), call.getFunction());
+            return buildFunctionHover(call.getSignature());
         } else if (expr instanceof final Function func) {
             // Built-in function (inner function from InternalFunctionCall)
-            return buildFunctionHover(func.getSignature(), null);
+            return buildFunctionHover(func.getSignature());
         } else if (expr instanceof final VariableReference varRef) {
             return buildVariableHover(varRef);
         }
         return Sequence.EMPTY_SEQUENCE;
     }
 
-    private Sequence buildFunctionHover(final FunctionSignature sig,
-            final UserDefinedFunction udf) throws XPathException {
+    private Sequence buildFunctionHover(final FunctionSignature sig) throws XPathException {
         final StringBuilder contents = new StringBuilder();
         contents.append(sig.toString());
 

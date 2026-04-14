@@ -25,6 +25,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.exist.dom.persistent.NodeProxy;
 import org.exist.xquery.BasicFunction;
+import org.exist.xquery.ErrorCodes;
 import org.exist.xquery.FunctionSignature;
 import org.exist.xquery.XPathException;
 import org.exist.xquery.XQueryContext;
@@ -135,7 +136,7 @@ public class Fetch extends BasicFunction {
 
         final CursorStore.CursorEntry entry = CursorStore.getInstance().get(cursorId);
         if (entry == null) {
-            throw new XPathException(this, "Cursor not found or expired: " + cursorId);
+            throw new XPathException(this, ErrorCodes.FOER0000, "Cursor not found or expired: " + cursorId);
         }
 
         final Sequence result = entry.result();

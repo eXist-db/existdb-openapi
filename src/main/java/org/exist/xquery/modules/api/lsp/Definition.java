@@ -217,10 +217,8 @@ public class Definition extends BasicFunction {
         // so any function with a non-null source path must be from an import.
         final Source funcSource = func.getSource();
         String uri = null;
-        if (funcSource != null && funcSource.path() != null) {
-            if (mainSource == null || !funcSource.equals(mainSource)) {
-                uri = funcSource.path();
-            }
+        if (funcSource != null && funcSource.path() != null && (mainSource == null || !funcSource.equals(mainSource))) {
+            uri = funcSource.path();
         }
 
         return buildResult(line - 1, Math.max(column - 1, 0), displayName, "function", uri);
@@ -233,16 +231,14 @@ public class Definition extends BasicFunction {
         // Search for matching VariableDeclaration in the prolog
         for (int i = 0; i < path.getSubExpressionCount(); i++) {
             final Expression step = path.getSubExpression(i);
-            if (step instanceof final VariableDeclaration varDecl) {
-                if (refName.equals(varDecl.getName())) {
-                    final int line = varDecl.getLine();
-                    if (line <= 0) {
-                        continue;
-                    }
-                    final String displayName = "$" + formatQName(varDecl.getName());
-                    return buildResult(line - 1, Math.max(varDecl.getColumn() - 1, 0),
-                            displayName, "variable", null);
+            if (step instanceof final VariableDeclaration varDecl && refName.equals(varDecl.getName())) {
+                final int line = varDecl.getLine();
+                if (line <= 0) {
+                    continue;
                 }
+                final String displayName = "$" + formatQName(varDecl.getName());
+                return buildResult(line - 1, Math.max(varDecl.getColumn() - 1, 0),
+                        displayName, "variable", null);
             }
         }
 

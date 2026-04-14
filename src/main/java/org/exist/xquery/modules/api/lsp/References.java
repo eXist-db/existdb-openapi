@@ -236,12 +236,11 @@ public class References extends BasicFunction {
         // Include the declaration
         for (int i = 0; i < path.getSubExpressionCount(); i++) {
             final Expression step = path.getSubExpression(i);
-            if (step instanceof final VariableDeclaration varDecl) {
-                if (targetName.equals(varDecl.getName()) && varDecl.getLine() > 0) {
-                    collector.locations.add(new RefLocation(
-                            varDecl.getLine() - 1, Math.max(varDecl.getColumn() - 1, 0),
-                            "$" + formatQName(targetName), "variable"));
-                }
+            if (step instanceof final VariableDeclaration varDecl
+                    && targetName.equals(varDecl.getName()) && varDecl.getLine() > 0) {
+                collector.locations.add(new RefLocation(
+                        varDecl.getLine() - 1, Math.max(varDecl.getColumn() - 1, 0),
+                        "$" + formatQName(targetName), "variable"));
             }
         }
 

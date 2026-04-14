@@ -146,10 +146,14 @@ public final class CursorStore {
 
     /**
      * Explicitly remove a cursor (client-initiated close).
+     *
+     * @return true if the cursor existed and was removed, false if not found
      */
-    public void remove(final String cursorId) {
+    public boolean remove(final String cursorId) {
+        final boolean existed = store.getIfPresent(cursorId) != null;
         store.invalidate(cursorId);
-        logger.debug("Cursor {} closed", cursorId);
+        logger.debug("Cursor {} closed (found={})", cursorId, existed);
+        return existed;
     }
 
     /**

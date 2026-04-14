@@ -23,7 +23,6 @@ package org.exist.xquery.modules.api.lsp;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.exist.dom.QName;
 import org.exist.source.StringSource;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.CompiledXQuery;
@@ -114,8 +113,7 @@ public class Eval extends BasicFunction {
             try {
                 // Phase 1: Compile (parse + compile + analyze)
                 final long compileStart = System.currentTimeMillis();
-                compiled = xqueryService.compile(context.getBroker(), evalContext,
-                        new StringSource(expr));
+                compiled = xqueryService.compile(evalContext, new StringSource(expr));
                 final long compileTime = System.currentTimeMillis() - compileStart;
 
                 // Phase 2: Evaluate

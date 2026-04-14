@@ -153,7 +153,7 @@ public class Diagnostics extends BasicFunction {
                 if (lastEx instanceof final RecognitionException re) {
                     addDiagnostic(diagnostics, re.getLine(), re.getColumn(), null, parser.getErrorMessage());
                 } else if (lastEx instanceof final XPathException xpe) {
-                    addDiagnostic(diagnostics, xpe.getLine(), xpe.getColumn(), xpe.getCode(), parser.getErrorMessage());
+                    addDiagnostic(diagnostics, xpe.getLine(), xpe.getColumn(), xpe.getErrorCode(), parser.getErrorMessage());
                 } else {
                     addDiagnostic(diagnostics, -1, -1, null, parser.getErrorMessage());
                 }
@@ -169,7 +169,7 @@ public class Diagnostics extends BasicFunction {
                     addDiagnostic(diagnostics,
                             xpe.getLine(),
                             xpe.getColumn(),
-                            xpe.getCode(),
+                            xpe.getErrorCode(),
                             xpe.getDetailMessage());
                 } else if (lastException != null) {
                     addDiagnostic(diagnostics, -1, -1, null, lastException.getMessage());
@@ -184,7 +184,7 @@ public class Diagnostics extends BasicFunction {
         } catch (final TokenStreamException e) {
             addDiagnostic(diagnostics, -1, -1, null, e.getMessage());
         } catch (final XPathException e) {
-            addDiagnostic(diagnostics, e.getLine(), e.getColumn(), e.getCode(), e.getDetailMessage());
+            addDiagnostic(diagnostics, e.getLine(), e.getColumn(), e.getErrorCode(), e.getDetailMessage());
         }
     }
 

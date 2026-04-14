@@ -82,7 +82,6 @@ public class Completions extends BasicFunction {
     /** LSP CompletionItemKind constants */
     private static final long COMPLETION_KIND_FUNCTION = 3;
     private static final long COMPLETION_KIND_VARIABLE = 6;
-    private static final long COMPLETION_KIND_MODULE = 9;
     private static final long COMPLETION_KIND_KEYWORD = 14;
 
     private static final String FS_COMPLETIONS_NAME = "completions";
@@ -208,7 +207,7 @@ public class Completions extends BasicFunction {
 
                 final String detail = sig.toString();
                 final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
-                final String insertText = formatInsertText(prefix, name.getLocalPart(), sig.getArgumentCount());
+                final String insertText = formatInsertText(prefix, name.getLocalPart());
 
                 addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, documentation, insertText);
             }
@@ -259,7 +258,7 @@ public class Completions extends BasicFunction {
                         prefix != null ? prefix : "", name.getLocalPart(), sig.getArgumentCount());
                 final String detail = sig.toString();
                 final String insertText = formatInsertText(
-                        prefix != null ? prefix : "", name.getLocalPart(), sig.getArgumentCount());
+                        prefix != null ? prefix : "", name.getLocalPart());
 
                 addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, "", insertText);
             }
@@ -306,15 +305,12 @@ public class Completions extends BasicFunction {
         return localPart + "#" + arity;
     }
 
-    private static String formatInsertText(final String prefix, final String localPart, final int arity) {
+    private static String formatInsertText(final String prefix, final String localPart) {
         final StringBuilder sb = new StringBuilder();
         if (prefix != null && !prefix.isEmpty()) {
             sb.append(prefix).append(':');
         }
         sb.append(localPart).append('(');
-        if (arity > 0) {
-            // Leave cursor inside parens for user to fill in args
-        }
         sb.append(')');
         return sb.toString();
     }
