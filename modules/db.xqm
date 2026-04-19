@@ -7,11 +7,12 @@ xquery version "3.1";
 module namespace db="http://exist-db.org/api/db";
 
 import module namespace dbutil="http://exist-db.org/api/dbutils" at "dbutils.xqm";
-import module namespace roaster="http://e-editiones.org/roaster";
+import module namespace roaster="http://e-editiones.org/roaster" at "roaster-compat.xqm";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare namespace sm="http://exist-db.org/xquery/securitymanager";
 declare namespace expath="http://expath.org/ns/pkg";
+declare namespace compression="http://exist-db.org/xquery/compression";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
@@ -178,6 +179,44 @@ declare function db:list($request as map(*)) {
                     "children": array { $child-collections, $resources }
                 }
             ))
+};
+
+(:~
+ : Download a collection as a ZIP archive.
+ : GET /api/db/collection?path=/db/apps/myapp
+ :
+ : Returns the collection contents as a ZIP file with all resources
+ : from subcollections included recursively. Directory structure is
+ : preserved relative to the requested collection path.
+ :)
+declare function db:download-collection($request as map(*)) {
+    let $path := $request?parameters?path
+    return
+        if (empty($path))
+        then roaster:response(400, map { "error": "Missing required parameter: path" })
+        else if (not(xmldb:collection-available($path)))
+        then roaster:response(404, map { "error": "Collection not found: " || $path })
+        else
+            let $entries := db:zip-entries($path, $path)
+            let $zip := compression:zip($entries, false())
+            let $name := replace($path, "^.*/", "") || ".zip"
+            return response:stream-binary($zip, "application/zip", $name)
+};
+
+(:~
+ : Recursively collect ZIP entry elements for all resources in a collection.
+ :)
+declare %private function db:zip-entries(
+    $base as xs:string, $col as xs:string
+) as element(entry)* {
+    (
+        for $r in xmldb:get-child-resources($col)
+        let $rel := substring-after($col || "/" || $r, $base || "/")
+        return <entry name="{$rel}" type="uri">{$col}/{$r}</entry>
+        ,
+        for $c in xmldb:get-child-collections($col)
+        return db:zip-entries($base, $col || "/" || $c)
+    )
 };
 
 (:~
@@ -368,18 +407,40 @@ declare function db:move($request as map(*)) {
     let $body := $request?body
     let $source := $body?source
     let $target := $body?target
+    let $newName := $body?newName
     return
-        if (empty($source) or empty($target))
-        then map { "error": "Missing required fields: source, target" }
-        else if (xmldb:collection-available($source))
-        then
+        if (empty($source))
+        then roaster:response(400, map { "error": "Missing required field: source" })
+        else if (exists($newName)) then
+            (: Rename in place :)
+            let $src-collection := replace($source, "/[^/]+$", "")
+            let $src-resource := replace($source, "^.*/", "")
+            return
+                if (xmldb:collection-available($source)) then
+                    (xmldb:rename($source, $newName),
+                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
+                else
+                    (xmldb:rename($src-collection, $src-resource, $newName),
+                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
+        else if (empty($target)) then
+            roaster:response(400, map { "error": "Missing required field: target or newName" })
+        else if (xmldb:collection-available($source)) then
             let $_ := xmldb:move($source, $target)
             return map { "moved": $source, "to": $target }
         else
             let $src-collection := replace($source, "/[^/]+$", "")
             let $src-resource := replace($source, "^.*/", "")
-            let $_ := xmldb:move($src-collection, $target, $src-resource)
-            return map { "moved": $source, "to": $target }
+            let $tgt-collection :=
+                if (contains($target, "/")) then replace($target, "/[^/]+$", "")
+                else $src-collection
+            let $tgt-resource :=
+                if (contains($target, "/")) then replace($target, "^.*/", "")
+                else $target
+            let $_ := xmldb:move($src-collection, $tgt-collection, $src-resource)
+            let $_ := if ($tgt-resource ne $src-resource)
+                      then xmldb:rename($tgt-collection, $src-resource, $tgt-resource)
+                      else ()
+            return map { "moved": $source, "to": $tgt-collection || "/" || $tgt-resource }
 };
 
 (:~

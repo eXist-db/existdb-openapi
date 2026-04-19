@@ -6,7 +6,7 @@ xquery version "3.1";
  :)
 module namespace system-api="http://exist-db.org/api/system";
 
-import module namespace roaster="http://e-editiones.org/roaster";
+import module namespace roaster="http://e-editiones.org/roaster" at "roaster-compat.xqm";
 import module namespace test="http://exist-db.org/xquery/xqsuite"
     at "resource:org/exist/xquery/lib/xqsuite/xqsuite.xql";
 

@@ -1,9 +1,10 @@
 xquery version "3.1";
 
 (:~
- : Roaster-based REST API entry point for the eXist-db Platform API.
+ : REST API entry point for the eXist-db Platform API.
  :
  : Routes incoming requests to module handlers based on the OpenAPI spec.
+ : Uses the built-in router module instead of Roaster.
  :)
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
@@ -11,8 +12,7 @@ declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare option output:method "json";
 declare option output:media-type "application/json";
 
-import module namespace roaster="http://e-editiones.org/roaster";
-import module namespace rutil="http://e-editiones.org/roaster/util";
+import module namespace router="http://exist-db.org/api/router" at "router.xqm";
 
 (: Import API modules — each handles a group of endpoints :)
 import module namespace system-api="http://exist-db.org/api/system" at "system.xqm";
@@ -26,7 +26,7 @@ import module namespace site="http://exist-db.org/api/site" at "site.xqm";
 
 (:~
  : Lookup function: resolves operationId strings to XQuery functions.
- : Roaster calls this with each operationId from api.json.
+ : Called by the router with each operationId from api.json.
  :)
 declare function local:lookup($operationId as xs:string) as function(*)? {
     function-lookup(xs:QName($operationId), 1)
@@ -35,4 +35,4 @@ declare function local:lookup($operationId as xs:string) as function(*)? {
 (:~
  : Main entry: route the request according to api.json spec.
  :)
-roaster:route("modules/api.json", local:lookup#1)
+router:route("modules/api.json", local:lookup#1)

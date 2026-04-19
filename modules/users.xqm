@@ -6,7 +6,7 @@ xquery version "3.1";
  :)
 module namespace users="http://exist-db.org/api/users";
 
-import module namespace roaster="http://e-editiones.org/roaster";
+import module namespace roaster="http://e-editiones.org/roaster" at "roaster-compat.xqm";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 
