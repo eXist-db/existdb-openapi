@@ -23,7 +23,16 @@ declare namespace output = "http://www.w3.org/2010/xslt-xquery-serialization";
  : @param $lookup function that resolves operationId → handler function
  : @return the handler's return value (typically a map or sequence)
  :)
-declare function router:route($api-json-path as xs:string, $lookup as function(*)) {
+declare function router:route($api-json-paths as item()*, $lookup as function(*)) {
+    router:route-specs(
+        if ($api-json-paths instance of array(*)) then $api-json-paths?*
+        else if ($api-json-paths instance of xs:string*) then $api-json-paths
+        else for $p in $api-json-paths return string($p),
+        $lookup
+    )
+};
+
+declare %private function router:route-specs($api-json-paths as xs:string*, $lookup as function(*)) {
     let $method := lower-case(request:get-method())
 
     (: Handle CORS preflight :)
@@ -37,7 +46,7 @@ declare function router:route($api-json-path as xs:string, $lookup as function(*
         </rest:response>
     else
 
-    (: Resolve the api.json path relative to the app's db collection :)
+    (: Resolve the api.json path(s) relative to the app's db collection :)
     let $controller := request:get-attribute("$exist:controller")
     let $root := request:get-attribute("$exist:root")
     let $app-collection :=
@@ -45,8 +54,15 @@ declare function router:route($api-json-path as xs:string, $lookup as function(*
             $controller
         else
             replace($root, "^xmldb:exist://", "") || $controller
-    let $spec-path := $app-collection || "/" || $api-json-path
-    let $spec := json-doc($spec-path)
+    (: Merge all API specs into one combined paths map :)
+    let $spec := map {
+        "paths": map:merge(
+            for $path in $api-json-paths
+            let $spec-path := $app-collection || "/" || $path
+            let $s := json-doc($spec-path)
+            return if (exists($s?paths)) then $s?paths else map {}
+        )
+    }
     let $request-path := request:get-attribute("$exist:path")
 
     (: Match the request to a route in the spec :)
@@ -67,8 +83,16 @@ declare function router:route($api-json-path as xs:string, $lookup as function(*
                 try {
                     $handler($request)
                 } catch * {
-                    map {
-                        "code": 500,
+                    (: Map roaster-style error QNames to HTTP status codes :)
+                    let $status :=
+                        switch (string($err:code))
+                        case "errors:UNAUTHORIZED_401" return 401
+                        case "errors:FORBIDDEN_403" return 403
+                        case "errors:NOT_FOUND_404" return 404
+                        case "errors:OPERATION" return 400
+                        default return 500
+                    return map {
+                        "code": $status,
                         "body": map {
                             "error": $err:description,
                             "code": string($err:code),
@@ -90,16 +114,20 @@ declare %private function router:send-response($result as item()*) as item()* {
     if ($result instance of map(*) and map:contains($result, "code")) then
         let $code := $result?code
         let $body := ($result?body, $result)[1]
-        let $media-type := $result?type
+        let $media-type := ($result?type, "application/json")[1]
         return (
             response:set-status-code($code),
-            if (exists($media-type)) then
-                response:set-header("Content-Type", $media-type)
-            else (),
+            response:set-header("Content-Type", $media-type),
             if ($body instance of map(*) or $body instance of array(*)) then
-                $body
+                serialize($body, map { "method": "json", "media-type": "application/json" })
             else
                 $body
+        )
+    else if ($result instance of map(*) or $result instance of array(*)) then
+        (: Handler returned a data structure — serialize as JSON :)
+        (
+            response:set-header("Content-Type", "application/json"),
+            serialize($result, map { "method": "json", "media-type": "application/json" })
         )
     else
         $result
