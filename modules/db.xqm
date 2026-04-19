@@ -368,18 +368,40 @@ declare function db:move($request as map(*)) {
     let $body := $request?body
     let $source := $body?source
     let $target := $body?target
+    let $newName := $body?newName
     return
-        if (empty($source) or empty($target))
-        then map { "error": "Missing required fields: source, target" }
-        else if (xmldb:collection-available($source))
-        then
+        if (empty($source))
+        then roaster:response(400, map { "error": "Missing required field: source" })
+        else if (exists($newName)) then
+            (: Rename in place :)
+            let $src-collection := replace($source, "/[^/]+$", "")
+            let $src-resource := replace($source, "^.*/", "")
+            return
+                if (xmldb:collection-available($source)) then
+                    (xmldb:rename($source, $newName),
+                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
+                else
+                    (xmldb:rename($src-collection, $src-resource, $newName),
+                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
+        else if (empty($target)) then
+            roaster:response(400, map { "error": "Missing required field: target or newName" })
+        else if (xmldb:collection-available($source)) then
             let $_ := xmldb:move($source, $target)
             return map { "moved": $source, "to": $target }
         else
             let $src-collection := replace($source, "/[^/]+$", "")
             let $src-resource := replace($source, "^.*/", "")
-            let $_ := xmldb:move($src-collection, $target, $src-resource)
-            return map { "moved": $source, "to": $target }
+            let $tgt-collection :=
+                if (contains($target, "/")) then replace($target, "/[^/]+$", "")
+                else $src-collection
+            let $tgt-resource :=
+                if (contains($target, "/")) then replace($target, "^.*/", "")
+                else $target
+            let $_ := xmldb:move($src-collection, $tgt-collection, $src-resource)
+            let $_ := if ($tgt-resource ne $src-resource)
+                      then xmldb:rename($tgt-collection, $src-resource, $tgt-resource)
+                      else ()
+            return map { "moved": $source, "to": $tgt-collection || "/" || $tgt-resource }
 };
 
 (:~
