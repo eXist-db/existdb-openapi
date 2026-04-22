@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import org.exist.xquery.AnalyzeContextInfo;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.DefaultExpressionVisitor;
+import org.exist.xquery.ElementConstructor;
 import org.exist.xquery.Expression;
 import org.exist.xquery.Function;
 import org.exist.xquery.FunctionCall;
@@ -126,7 +127,11 @@ public class Hover extends BasicFunction {
                 }
 
                 final NodeAtPositionFinder finder = new NodeAtPositionFinder(targetLine, targetColumn);
+                logger.debug("Hover: starting visitor for target {}:{}, path has {} steps",
+                        targetLine, targetColumn, path.getLength());
                 path.accept(finder);
+                logger.debug("Hover: visitor done, found={}", finder.foundExpression != null ?
+                        finder.foundExpression.getClass().getSimpleName() : "null");
 
                 // Also traverse user-defined function bodies (needed for library
                 // modules where function bodies aren't part of the main PathExpr)
@@ -261,15 +266,44 @@ public class Hover extends BasicFunction {
 
         @Override
         public void visit(final Expression expression) {
-            // Traverse children for generic expressions
+            logger.debug("Hover visitor: visit({}) subs={} at {}:{}",
+                    expression.getClass().getSimpleName(),
+                    expression.getSubExpressionCount(),
+                    expression.getLine(), expression.getColumn());
             for (int i = 0; i < expression.getSubExpressionCount(); i++) {
-                expression.getSubExpression(i).accept(this);
+                final Expression sub = expression.getSubExpression(i);
+                logger.warn("  sub {}: {} at {}:{}",
+                        i, sub.getClass().getSimpleName(),
+                        sub.getLine(), sub.getColumn());
+                sub.accept(this);
             }
+        }
+
+        @Override
+        public void visitElementConstructor(ElementConstructor constructor) {
+            final PathExpr content = constructor.getContent();
+            logger.debug("Hover visitor: entering ElementConstructor at {}:{}, content has {} steps",
+                    constructor.getLine(), constructor.getColumn(),
+                    content != null ? content.getLength() : 0);
+            if (content != null) {
+                for (int i = 0; i < content.getLength(); i++) {
+                    final Expression step = content.getExpression(i);
+                    logger.warn("  step {}: {} at {}:{} subs={}",
+                            i, step.getClass().getSimpleName(),
+                            step.getLine(), step.getColumn(),
+                            step.getSubExpressionCount());
+                }
+            }
+            super.visitElementConstructor(constructor);
         }
 
         private void checkExpression(final Expression expr) {
             final int line = expr.getLine();
             final int column = expr.getColumn();
+
+            logger.debug("Hover visitor: checking {} at {}:{} (target={}:{}, best={})",
+                    expr.getClass().getSimpleName(), line, column,
+                    targetLine, targetColumn, bestColumn);
 
             if (line == targetLine && column <= targetColumn && column > bestColumn) {
                 foundExpression = expr;
