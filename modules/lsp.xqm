@@ -100,6 +100,43 @@ declare function lspapi:references($request as map(*)) {
 };
 
 (:~
+ : Signature help.
+ : POST /api/lsp/signatureHelp
+ :)
+declare function lspapi:signatureHelp($request as map(*)) {
+    let $body := $request?body
+    let $expression := $body?expression
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
+    let $module-load-path := $body?module-load-path
+    return
+        if (empty($expression) or empty($line) or empty($column))
+        then map { "error": "Missing required fields: expression, line, column" }
+        else if ($module-load-path)
+        then lsp:signature-help($expression, $line, $column, $module-load-path)
+        else lsp:signature-help($expression, $line, $column)
+};
+
+(:~
+ : Rename symbol.
+ : POST /api/lsp/rename
+ :)
+declare function lspapi:rename($request as map(*)) {
+    let $body := $request?body
+    let $expression := $body?expression
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
+    let $newName := $body?newName
+    let $module-load-path := $body?module-load-path
+    return
+        if (empty($expression) or empty($line) or empty($column) or empty($newName))
+        then map { "error": "Missing required fields: expression, line, column, newName" }
+        else if ($module-load-path)
+        then lsp:rename($expression, $line, $column, $newName, $module-load-path)
+        else lsp:rename($expression, $line, $column, $newName)
+};
+
+(:~
  : Document symbols.
  : POST /api/lsp/symbols
  :)

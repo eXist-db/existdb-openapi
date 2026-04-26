@@ -1107,6 +1107,225 @@
         }
       }
     },
+    "/api/lsp/signatureHelp": {
+      "post": {
+        "summary": "Signature help",
+        "operationId": "lspapi:signatureHelp",
+        "description": "Returns signature help for the function call at the given line and column. Shows function overloads with parameter information and highlights the active parameter.",
+        "tags": [
+          "LSP"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expression",
+                  "line",
+                  "column"
+                ],
+                "properties": {
+                  "expression": {
+                    "type": "string",
+                    "description": "Full XQuery expression"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "description": "0-based line number"
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "0-based column number"
+                  },
+                  "module-load-path": {
+                    "type": "string",
+                    "description": "Module load path for resolving imports"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signature help with overloads and active parameter",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "signatures": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "description": "Full function signature"
+                          },
+                          "documentation": {
+                            "type": "string",
+                            "description": "Function description"
+                          },
+                          "parameters": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string",
+                                  "description": "Parameter label"
+                                },
+                                "documentation": {
+                                  "type": "string",
+                                  "description": "Parameter description"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "activeSignature": {
+                      "type": "integer",
+                      "description": "Index of the best-matching signature"
+                    },
+                    "activeParameter": {
+                      "type": "integer",
+                      "description": "Index of the active parameter"
+                    }
+                  },
+                  "example": {
+                    "signatures": [
+                      {
+                        "label": "fn:substring($sourceString as xs:string?, $start as xs:double) as xs:string",
+                        "documentation": "Returns the portion of the value of $sourceString beginning at the position indicated by the value of $start",
+                        "parameters": [
+                          {
+                            "label": "$sourceString as xs:string?",
+                            "documentation": "The source string"
+                          },
+                          {
+                            "label": "$start as xs:double",
+                            "documentation": "The starting position"
+                          }
+                        ]
+                      }
+                    ],
+                    "activeSignature": 0,
+                    "activeParameter": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/lsp/rename": {
+      "post": {
+        "summary": "Rename symbol",
+        "operationId": "lspapi:rename",
+        "description": "Computes text edits needed to rename the symbol at the given position. Only supports single-file rename for variables and local functions.",
+        "tags": [
+          "LSP"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expression",
+                  "line",
+                  "column",
+                  "newName"
+                ],
+                "properties": {
+                  "expression": {
+                    "type": "string",
+                    "description": "Full XQuery expression"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "description": "0-based line number"
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "0-based column number"
+                  },
+                  "newName": {
+                    "type": "string",
+                    "description": "The new name for the symbol"
+                  },
+                  "module-load-path": {
+                    "type": "string",
+                    "description": "Module load path for resolving imports"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Workspace edit with text changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "line": {
+                            "type": "integer",
+                            "description": "0-based line of the edit"
+                          },
+                          "column": {
+                            "type": "integer",
+                            "description": "0-based start column"
+                          },
+                          "endColumn": {
+                            "type": "integer",
+                            "description": "0-based end column"
+                          },
+                          "newText": {
+                            "type": "string",
+                            "description": "Replacement text"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "changes": [
+                      {
+                        "line": 3,
+                        "column": 18,
+                        "endColumn": 25,
+                        "newText": "new-name"
+                      },
+                      {
+                        "line": 10,
+                        "column": 4,
+                        "endColumn": 11,
+                        "newText": "new-name"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/db": {
       "get": {
         "summary": "List collection contents",

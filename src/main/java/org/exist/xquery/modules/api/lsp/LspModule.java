@@ -56,6 +56,8 @@ public class LspModule extends AbstractInternalModule {
             functionDefs(Fetch.class, Fetch.FS_FETCH),
             functionDefs(Hover.class, Hover.FS_HOVER),
             functionDefs(References.class, References.FS_REFERENCES),
+            functionDefs(Rename.class, Rename.FS_RENAME),
+            functionDefs(SignatureHelp.class, SignatureHelp.FS_SIGNATURE_HELP),
             functionDefs(Symbols.class, Symbols.FS_SYMBOLS)
     );
 
