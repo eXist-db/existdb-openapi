@@ -1,3 +1,7 @@
+(:
+ : SPDX LGPL-2.1-or-later
+ : Copyright (C) 2026 The eXist-db Authors
+ :)
 xquery version "3.1";
 
 (:~
