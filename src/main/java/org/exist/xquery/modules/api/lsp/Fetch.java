@@ -96,11 +96,12 @@ public class Fetch extends BasicFunction {
                             param("cursor", Type.STRING, "The cursor ID returned by lsp:eval()."),
                             param("start", Type.INTEGER, "1-based start position."),
                             param("count", Type.INTEGER, "Number of items to retrieve."),
-                            param("serialization", Type.MAP_ITEM, "Serialization parameters map. " +
-                                    "Supports all W3C serialization parameters: method, indent, " +
-                                    "omit-xml-declaration, encoding, media-type, item-separator, etc. " +
-                                    "Also supports eXist-specific: highlight-matches (boolean). " +
-                                    "Defaults: method=adaptive, indent=yes.")
+                            param("serialization", Type.MAP_ITEM, """
+                                    Serialization parameters map. \
+                                    Supports all W3C serialization parameters: method, indent, \
+                                    omit-xml-declaration, encoding, media-type, item-separator, etc. \
+                                    Also supports eXist-specific: highlight-matches (boolean). \
+                                    Defaults: method=adaptive, indent=yes.""")
                     )
             )
     );

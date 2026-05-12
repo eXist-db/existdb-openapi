@@ -92,9 +92,10 @@ public class Diagnostics extends BasicFunction {
                     ),
                     arity(
                             param("expression", Type.STRING, "The XQuery expression to compile."),
-                            optParam("module-load-path", Type.STRING, "The module load path. " +
-                                    "Imports will be resolved relative to this. " +
-                                    "Use xmldb:exist:///db for database-stored modules.")
+                            optParam("module-load-path", Type.STRING, """
+                                    The module load path. \
+                                    Imports will be resolved relative to this. \
+                                    Use xmldb:exist:///db for database-stored modules.""")
                     )
             )
     );

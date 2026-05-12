@@ -96,9 +96,10 @@ public class Symbols extends BasicFunction {
                     ),
                     arity(
                             param("expression", Type.STRING, "The XQuery expression to analyze."),
-                            optParam("module-load-path", Type.STRING, "The module load path. " +
-                                    "Imports will be resolved relative to this. " +
-                                    "Use xmldb:exist:///db for database-stored modules.")
+                            optParam("module-load-path", Type.STRING, """
+                                    The module load path. \
+                                    Imports will be resolved relative to this. \
+                                    Use xmldb:exist:///db for database-stored modules.""")
                     )
             )
     );
