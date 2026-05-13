@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.Iterator;
@@ -62,7 +62,7 @@ public class Hover extends BasicFunction {
             symbol is found at the position.""";
 
     public static final FunctionSignature[] FS_HOVER = functionSignatures(
-            LspModule.qname(FS_HOVER_NAME),
+            LangServiceModule.qname(FS_HOVER_NAME),
             FS_HOVER_DESCRIPTION,
             returns(Type.MAP_ITEM, "a hover info map, or empty sequence"),
             arities(

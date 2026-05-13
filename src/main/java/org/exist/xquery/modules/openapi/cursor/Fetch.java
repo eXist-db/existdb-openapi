@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.cursor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,7 +56,7 @@ public class Fetch extends BasicFunction {
 
     private static final String FS_FETCH_NAME = "fetch";
     private static final String FS_FETCH_DESCRIPTION = """
-            Retrieves a page of results from a cursor created by lsp:eval(). \
+            Retrieves a page of results from a cursor created by cursor:eval(). \
             Only the requested items are serialized; the rest remain as live references. \
             Returns an array of maps with keys: value (xs:string, serialized item), \
             type (xs:string, XDM type), documentURI (xs:string, source document path or ""), \
@@ -66,17 +66,17 @@ public class Fetch extends BasicFunction {
             Defaults to method=adaptive, indent=yes.""";
 
     public static final FunctionSignature[] FS_FETCH = functionSignatures(
-            LspModule.qname(FS_FETCH_NAME),
+            CursorModule.qname(FS_FETCH_NAME),
             FS_FETCH_DESCRIPTION,
             returns(Type.ARRAY_ITEM, "an array of result item maps"),
             arities(
                     arity(
-                            param("cursor", Type.STRING, "The cursor ID returned by lsp:eval()."),
+                            param("cursor", Type.STRING, "The cursor ID returned by cursor:eval()."),
                             param("start", Type.INTEGER, "1-based start position."),
                             param("count", Type.INTEGER, "Number of items to retrieve.")
                     ),
                     arity(
-                            param("cursor", Type.STRING, "The cursor ID returned by lsp:eval()."),
+                            param("cursor", Type.STRING, "The cursor ID returned by cursor:eval()."),
                             param("start", Type.INTEGER, "1-based start position."),
                             param("count", Type.INTEGER, "Number of items to retrieve."),
                             param("serialization", Type.MAP_ITEM, """
@@ -128,7 +128,7 @@ public class Fetch extends BasicFunction {
         final int actualStart = Math.max(1, start);
         final int actualEnd = Math.min(actualStart + count - 1, total);
 
-        logger.debug("lsp:fetch cursor={} start={} count={} (total={})", cursorId, actualStart, count, total);
+        logger.debug("cursor:fetch cursor={} start={} count={} (total={})", cursorId, actualStart, count, total);
 
         final List<Sequence> items = new ArrayList<>();
 

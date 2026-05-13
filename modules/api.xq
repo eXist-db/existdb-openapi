@@ -21,7 +21,7 @@ import module namespace rutil="http://e-editiones.org/roaster/util";
 (: Import API modules — each handles a group of endpoints :)
 import module namespace system-api="http://exist-db.org/api/system" at "system.xqm";
 import module namespace query="http://exist-db.org/api/query" at "query.xqm";
-import module namespace lspapi="http://exist-db.org/api/lsp" at "lsp.xqm";
+import module namespace langservice="http://exist-db.org/api/langservice" at "langservice.xqm";
 import module namespace db="http://exist-db.org/api/db" at "db.xqm";
 import module namespace users="http://exist-db.org/api/users" at "users.xqm";
 import module namespace packages="http://exist-db.org/api/packages" at "packages.xqm";

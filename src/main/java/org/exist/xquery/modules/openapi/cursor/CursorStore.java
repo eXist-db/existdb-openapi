@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.cursor;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -63,7 +63,7 @@ public final class CursorStore {
     }
 
     /**
-     * (Re)configure the cursor store. Called from {@link LspModule} constructor
+     * (Re)configure the cursor store. Called from {@link CursorModule} constructor
      * when module parameters are available.
      *
      * @param maximumSize max concurrent cursors (0 = unlimited count)

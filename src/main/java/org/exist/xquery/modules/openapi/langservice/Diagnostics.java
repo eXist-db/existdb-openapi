@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -66,7 +66,7 @@ public class Diagnostics extends BasicFunction {
             message (xs:string). Returns an empty array if compilation succeeds.""";
 
     public static final FunctionSignature[] FS_DIAGNOSTICS = functionSignatures(
-            LspModule.qname(FS_DIAGNOSTICS_NAME),
+            LangServiceModule.qname(FS_DIAGNOSTICS_NAME),
             FS_DIAGNOSTICS_DESCRIPTION,
             returns(Type.ARRAY_ITEM, "an array of diagnostic maps"),
             arities(

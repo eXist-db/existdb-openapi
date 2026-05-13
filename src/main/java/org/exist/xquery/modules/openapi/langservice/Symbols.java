@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -70,7 +70,7 @@ public class Symbols extends BasicFunction {
             Returns an empty array if the expression cannot be compiled.""";
 
     public static final FunctionSignature[] FS_SYMBOLS = functionSignatures(
-            LspModule.qname(FS_SYMBOLS_NAME),
+            LangServiceModule.qname(FS_SYMBOLS_NAME),
             FS_SYMBOLS_DESCRIPTION,
             returns(Type.ARRAY_ITEM, "an array of document symbol maps"),
             arities(

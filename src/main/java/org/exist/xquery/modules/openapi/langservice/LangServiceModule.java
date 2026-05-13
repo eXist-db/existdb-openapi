@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import org.exist.dom.QName;
 import org.exist.xquery.AbstractInternalModule;
@@ -14,35 +14,32 @@ import java.util.Map;
 import static org.exist.xquery.FunctionDSL.functionDefs;
 
 /**
- * Backward-compatibility module that registers LSP functions under the
- * original {@code http://exist-db.org/xquery/lsp} namespace.
+ * XQuery function module providing language-services capabilities for XQuery editors.
  *
- * <p>This allows existing code (e.g., eXide) that imports {@code lsp:eval},
- * {@code lsp:fetch}, etc. to continue working without changes after
- * migrating from the standalone exist-lsp package to exist-api.</p>
+ * <p>Registers functions under {@code http://exist-db.org/xquery/langservice}
+ * (prefix: {@code lang}). The functions emit data shapes inspired by the
+ * Language Server Protocol (LSP) but are consumed over HTTP/JSON, not the
+ * LSP wire protocol.</p>
  *
- * <p>All functions delegate to the same implementations used by the
- * {@code api} namespace module.</p>
+ * <p>Server-side cursor functions for paginated query execution live in
+ * {@link org.exist.xquery.modules.openapi.cursor.CursorModule}, not here.</p>
  */
-public class LspModule extends AbstractInternalModule {
+public class LangServiceModule extends AbstractInternalModule {
 
-    public static final String NAMESPACE_URI = "http://exist-db.org/xquery/lsp";
-    public static final String PREFIX = "lsp";
+    public static final String NAMESPACE_URI = "http://exist-db.org/xquery/langservice";
+    public static final String PREFIX = "lang";
     public static final String RELEASE = "0.9.0-SNAPSHOT";
 
     public static final FunctionDef[] functions = functionDefs(
-            functionDefs(Close.class, Close.FS_CLOSE),
             functionDefs(Completions.class, Completions.FS_COMPLETIONS),
             functionDefs(Definition.class, Definition.FS_DEFINITION),
             functionDefs(Diagnostics.class, Diagnostics.FS_DIAGNOSTICS),
-            functionDefs(Eval.class, Eval.FS_EVAL),
-            functionDefs(Fetch.class, Fetch.FS_FETCH),
             functionDefs(Hover.class, Hover.FS_HOVER),
             functionDefs(References.class, References.FS_REFERENCES),
             functionDefs(Symbols.class, Symbols.FS_SYMBOLS)
     );
 
-    public LspModule(final Map<String, List<?>> parameters) {
+    public LangServiceModule(final Map<String, List<?>> parameters) {
         super(functions, parameters);
     }
 
@@ -54,7 +51,7 @@ public class LspModule extends AbstractInternalModule {
 
     @Override
     public String getDescription() {
-        return "Backward-compatible LSP functions (use http://exist-db.org/xquery/api for new code)";
+        return "Language services for XQuery (diagnostics, completions, hover, definition, references, symbols)";
     }
 
     @Override

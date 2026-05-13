@@ -6,11 +6,11 @@ xquery version "3.1";
 
 (:~
  : Query execution endpoints.
- : Wraps lsp:eval(), lsp:fetch(), lsp:close() Java functions as REST endpoints.
+ : Wraps cursor:eval(), cursor:fetch(), cursor:close() Java functions as REST endpoints.
  :)
 module namespace query="http://exist-db.org/api/query";
 
-import module namespace lsp="http://exist-db.org/xquery/lsp";
+import module namespace cursor="http://exist-db.org/xquery/cursor";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 
@@ -24,7 +24,7 @@ declare option output:media-type "application/json";
  : defaults (adaptive method, indented, XML declaration omitted).
  :
  : @param $params map of parameter names to values (strings or booleans)
- : @return serialization parameters map suitable for serialize() or lsp:fetch()
+ : @return serialization parameters map suitable for serialize() or cursor:fetch()
  :)
 declare %private function query:serialization-params($params as map(*)) as map(*) {
     (: serialize() requires xs:boolean for boolean parameters, not "yes"/"no" strings :)
@@ -61,8 +61,8 @@ declare function query:execute($request as map(*)) {
         else
             let $result :=
                 if ($module-load-path)
-                then lsp:eval($expression, $module-load-path)
-                else lsp:eval($expression)
+                then cursor:eval($expression, $module-load-path)
+                else cursor:eval($expression)
             return $result
 };
 
@@ -77,13 +77,13 @@ declare function query:fetch($request as map(*)) {
     let $cursor := $request?parameters?id
     let $start  := ($request?parameters?start, 1)[1]  cast as xs:integer
     let $count  := ($request?parameters?count, 10)[1] cast as xs:integer
-    (: lsp:fetch() expects string values for boolean params — keep as-is :)
+    (: cursor:fetch() expects string values for boolean params — keep as-is :)
     let $ser := map {
         "method": ($request?parameters?method, "adaptive")[1],
         "indent": ($request?parameters?indent, "yes")[1]
     }
     return
-        lsp:fetch($cursor, $start, $count, $ser)
+        cursor:fetch($cursor, $start, $count, $ser)
 };
 
 (:~
@@ -95,7 +95,7 @@ declare function query:fetch($request as map(*)) {
  :)
 declare function query:close($request as map(*)) {
     let $cursor := $request?parameters?id
-    let $closed := lsp:close($cursor)
+    let $closed := cursor:close($cursor)
     return
         map { "closed": $closed }
 };

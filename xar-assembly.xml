@@ -56,12 +56,12 @@
     <!-- register Java modules to eXist-db -->
     <components>
         <resource>
-            <public-uri>${api.module.namespace}</public-uri>
-            <file>urn:java:class:${api.module.java.classname}</file>
+            <public-uri>${langservice.module.namespace}</public-uri>
+            <file>urn:java:class:${langservice.module.java.classname}</file>
         </resource>
         <resource>
-            <public-uri>${lsp.module.namespace}</public-uri>
-            <file>urn:java:class:${lsp.module.java.classname}</file>
+            <public-uri>${cursor.module.namespace}</public-uri>
+            <file>urn:java:class:${cursor.module.java.classname}</file>
         </resource>
     </components>
 

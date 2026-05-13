@@ -53,13 +53,13 @@
         <package-name>http://exist-db.org/pkg/api</package-name>
         <package-abbrev>exist-api</package-abbrev>
 
-        <!-- primary API module -->
-        <api.module.namespace>http://exist-db.org/xquery/api</api.module.namespace>
-        <api.module.java.classname>org.exist.xquery.modules.api.ApiModule</api.module.java.classname>
+        <!-- language services module (diagnostics, completions, hover, etc.) -->
+        <langservice.module.namespace>http://exist-db.org/xquery/langservice</langservice.module.namespace>
+        <langservice.module.java.classname>org.exist.xquery.modules.openapi.langservice.LangServiceModule</langservice.module.java.classname>
 
-        <!-- backward-compatible LSP module -->
-        <lsp.module.namespace>http://exist-db.org/xquery/lsp</lsp.module.namespace>
-        <lsp.module.java.classname>org.exist.xquery.modules.api.lsp.LspModule</lsp.module.java.classname>
+        <!-- cursor module (server-side cursors for paginated query execution) -->
+        <cursor.module.namespace>http://exist-db.org/xquery/cursor</cursor.module.namespace>
+        <cursor.module.java.classname>org.exist.xquery.modules.openapi.cursor.CursorModule</cursor.module.java.classname>
     </properties>
 
     <dependencies>

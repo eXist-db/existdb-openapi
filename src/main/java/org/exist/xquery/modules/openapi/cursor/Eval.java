@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.cursor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,7 +29,7 @@ import static org.exist.xquery.FunctionDSL.*;
  *
  * <p>Returns a map with:</p>
  * <ul>
- *   <li>{@code cursor} — cursor ID for use with {@code lsp:fetch()} and {@code lsp:close()}</li>
+ *   <li>{@code cursor} — cursor ID for use with {@code cursor:fetch()} and {@code cursor:close()}</li>
  *   <li>{@code items} — total number of items in the result sequence</li>
  *   <li>{@code elapsed} — execution time in milliseconds</li>
  * </ul>
@@ -45,12 +45,12 @@ public class Eval extends BasicFunction {
     private static final String FS_EVAL_NAME = "eval";
     private static final String FS_EVAL_DESCRIPTION = """
             Evaluates an XQuery expression and stores the result in a server-side cursor. \
-            Returns a map with keys: cursor (xs:string, cursor ID for lsp:fetch/lsp:close), \
+            Returns a map with keys: cursor (xs:string, cursor ID for cursor:fetch/cursor:close), \
             items (xs:integer, total result count), and elapsed (xs:integer, execution time in ms). \
             The cursor holds live node references and expires after 5 minutes of inactivity.""";
 
     public static final FunctionSignature[] FS_EVAL = functionSignatures(
-            LspModule.qname(FS_EVAL_NAME),
+            CursorModule.qname(FS_EVAL_NAME),
             FS_EVAL_DESCRIPTION,
             returns(Type.MAP_ITEM, "a map with cursor ID, item count, and elapsed time"),
             arities(
@@ -113,7 +113,7 @@ public class Eval extends BasicFunction {
                 final String cursorId = UUID.randomUUID().toString();
                 CursorStore.getInstance().put(cursorId, result, itemCount, evalContext);
 
-                logger.debug("lsp:eval cursor={} items={} compile={}ms eval={}ms total={}ms",
+                logger.debug("cursor:eval cursor={} items={} compile={}ms eval={}ms total={}ms",
                         cursorId, itemCount, compileTime, evalTime, totalTime);
 
                 // Return metadata with timing breakdown
