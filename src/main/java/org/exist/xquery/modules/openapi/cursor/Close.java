@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.cursor;
 
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.FunctionSignature;
@@ -24,11 +24,11 @@ public class Close extends BasicFunction {
 
     private static final String FS_CLOSE_NAME = "close";
     private static final String FS_CLOSE_DESCRIPTION = """
-            Closes a server-side cursor created by lsp:eval(), releasing the held result sequence. \
+            Closes a server-side cursor created by cursor:eval(), releasing the held result sequence. \
             Returns true if the cursor was found and removed, false if it had already expired.""";
 
     public static final FunctionSignature[] FS_CLOSE = functionSignatures(
-            LspModule.qname(FS_CLOSE_NAME),
+            CursorModule.qname(FS_CLOSE_NAME),
             FS_CLOSE_DESCRIPTION,
             returns(Type.BOOLEAN, "true if cursor was closed, false if not found"),
             arities(

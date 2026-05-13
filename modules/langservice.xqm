@@ -6,11 +6,11 @@ xquery version "3.1";
 
 (:~
  : Language services endpoints.
- : Wraps LSP Java functions as REST endpoints.
+ : Wraps lang:* Java functions as REST endpoints at /api/langservice/*.
  :)
-module namespace lspapi="http://exist-db.org/api/lsp";
+module namespace langservice="http://exist-db.org/api/langservice";
 
-import module namespace lsp="http://exist-db.org/xquery/lsp";
+import module namespace lang="http://exist-db.org/xquery/langservice";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 
@@ -19,9 +19,9 @@ declare option output:media-type "application/json";
 
 (:~
  : Compile check — returns diagnostics.
- : POST /api/lsp/diagnostics
+ : POST /api/langservice/diagnostics
  :)
-declare function lspapi:diagnostics($request as map(*)) {
+declare function langservice:diagnostics($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $module-load-path := $body?module-load-path
@@ -29,15 +29,15 @@ declare function lspapi:diagnostics($request as map(*)) {
         if (empty($expression))
         then map { "error": "Missing required field: expression" }
         else if ($module-load-path)
-        then lsp:diagnostics($expression, $module-load-path)
-        else lsp:diagnostics($expression)
+        then lang:diagnostics($expression, $module-load-path)
+        else lang:diagnostics($expression)
 };
 
 (:~
  : Code completions.
- : POST /api/lsp/completions
+ : POST /api/langservice/completions
  :)
-declare function lspapi:completions($request as map(*)) {
+declare function langservice:completions($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $module-load-path := $body?module-load-path
@@ -45,15 +45,15 @@ declare function lspapi:completions($request as map(*)) {
         if (empty($expression))
         then map { "error": "Missing required field: expression" }
         else if ($module-load-path)
-        then lsp:completions($expression, $module-load-path)
-        else lsp:completions($expression)
+        then lang:completions($expression, $module-load-path)
+        else lang:completions($expression)
 };
 
 (:~
  : Hover info.
- : POST /api/lsp/hover
+ : POST /api/langservice/hover
  :)
-declare function lspapi:hover($request as map(*)) {
+declare function langservice:hover($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $line := $body?line
@@ -63,15 +63,15 @@ declare function lspapi:hover($request as map(*)) {
         if (empty($expression) or empty($line) or empty($column))
         then map { "error": "Missing required fields: expression, line, column" }
         else if ($module-load-path)
-        then lsp:hover($expression, $line, $column, $module-load-path)
-        else lsp:hover($expression, $line, $column)
+        then lang:hover($expression, $line, $column, $module-load-path)
+        else lang:hover($expression, $line, $column)
 };
 
 (:~
  : Go to definition.
- : POST /api/lsp/definition
+ : POST /api/langservice/definition
  :)
-declare function lspapi:definition($request as map(*)) {
+declare function langservice:definition($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $line := $body?line
@@ -81,15 +81,15 @@ declare function lspapi:definition($request as map(*)) {
         if (empty($expression) or empty($line) or empty($column))
         then map { "error": "Missing required fields: expression, line, column" }
         else if ($module-load-path)
-        then lsp:definition($expression, $line, $column, $module-load-path)
-        else lsp:definition($expression, $line, $column)
+        then lang:definition($expression, $line, $column, $module-load-path)
+        else lang:definition($expression, $line, $column)
 };
 
 (:~
  : Find all references.
- : POST /api/lsp/references
+ : POST /api/langservice/references
  :)
-declare function lspapi:references($request as map(*)) {
+declare function langservice:references($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $line := $body?line
@@ -99,15 +99,15 @@ declare function lspapi:references($request as map(*)) {
         if (empty($expression) or empty($line) or empty($column))
         then map { "error": "Missing required fields: expression, line, column" }
         else if ($module-load-path)
-        then lsp:references($expression, $line, $column, $module-load-path)
-        else lsp:references($expression, $line, $column)
+        then lang:references($expression, $line, $column, $module-load-path)
+        else lang:references($expression, $line, $column)
 };
 
 (:~
  : Document symbols.
- : POST /api/lsp/symbols
+ : POST /api/langservice/symbols
  :)
-declare function lspapi:symbols($request as map(*)) {
+declare function langservice:symbols($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
     let $module-load-path := $body?module-load-path
@@ -115,6 +115,25 @@ declare function lspapi:symbols($request as map(*)) {
         if (empty($expression))
         then map { "error": "Missing required field: expression" }
         else if ($module-load-path)
-        then lsp:symbols($expression, $module-load-path)
-        else lsp:symbols($expression)
+        then lang:symbols($expression, $module-load-path)
+        else lang:symbols($expression)
+};
+
+(:~
+ : Capability discovery — returns the set of language-service features
+ : the running exist-api instance supports. Modeled loosely on LSP's
+ : ServerCapabilities, but for the REST surface.
+ : GET /api/langservice/capabilities
+ :)
+declare function langservice:capabilities($request as map(*)) {
+    map {
+        "diagnostics":  map { "available": true, "provider": "exist-xquery-parser" },
+        "completions":  map { "available": true, "positional": false },
+        "hover":        map { "available": true, "markupKinds": [ "plaintext" ] },
+        "definition":   map { "available": true, "multiTarget": false },
+        "references":   map { "available": true, "includeDeclaration": false },
+        "symbols":      map { "available": true, "hierarchical": false },
+        "cursor":       map { "available": true },
+        "version":      "0.9.0-SNAPSHOT"
+    }
 };

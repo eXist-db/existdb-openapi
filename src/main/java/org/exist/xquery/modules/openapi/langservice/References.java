@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -69,7 +69,7 @@ public class References extends BasicFunction {
             array if no symbol is found at the position.""";
 
     public static final FunctionSignature[] FS_REFERENCES = functionSignatures(
-            LspModule.qname(FS_REFERENCES_NAME),
+            LangServiceModule.qname(FS_REFERENCES_NAME),
             FS_REFERENCES_DESCRIPTION,
             returns(Type.ARRAY_ITEM, "an array of reference location maps"),
             arities(

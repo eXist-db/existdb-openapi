@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 
@@ -72,7 +72,7 @@ public class Definition extends BasicFunction {
             sequence if no user-declared definition is found.""";
 
     public static final FunctionSignature[] FS_DEFINITION = functionSignatures(
-            LspModule.qname(FS_DEFINITION_NAME),
+            LangServiceModule.qname(FS_DEFINITION_NAME),
             FS_DEFINITION_DESCRIPTION,
             returns(Type.MAP_ITEM, "a definition location map, or empty sequence"),
             arities(

@@ -2,7 +2,7 @@
  * SPDX LGPL-2.1-or-later
  * Copyright (C) 2026 The eXist-db Authors
  */
-package org.exist.xquery.modules.api.lsp;
+package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.ArrayList;
@@ -77,7 +77,7 @@ public class Completions extends BasicFunction {
             included if the expression compiles successfully.""";
 
     public static final FunctionSignature[] FS_COMPLETIONS = functionSignatures(
-            LspModule.qname(FS_COMPLETIONS_NAME),
+            LangServiceModule.qname(FS_COMPLETIONS_NAME),
             FS_COMPLETIONS_DESCRIPTION,
             returns(Type.ARRAY_ITEM, "an array of completion item maps"),
             arities(

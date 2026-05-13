@@ -25,8 +25,8 @@
       "description": "XQuery execution with cursor-based result pagination"
     },
     {
-      "name": "LSP",
-      "description": "Language Server Protocol services for XQuery (diagnostics, completions, hover, etc.)"
+      "name": "Language Service",
+      "description": "Language services for XQuery (diagnostics, completions, hover, etc.). Data shapes are inspired by the Language Server Protocol but consumed over HTTP/JSON."
     },
     {
       "name": "Database",
@@ -314,7 +314,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing or invalid source parameter",
+            "description": "Bad request — missing or invalid source parameter",
             "content": {
               "application/json": {
                 "schema": {
@@ -420,7 +420,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 invalid or missing query",
+            "description": "Bad request — invalid or missing query",
             "content": {
               "application/json": {
                 "schema": {
@@ -596,7 +596,7 @@
       "post": {
         "summary": "Cancel running query",
         "operationId": "query:cancel",
-        "description": "Attempts to cancel a currently running query. Not yet implemented \u2014 returns an error message.",
+        "description": "Attempts to cancel a currently running query. Not yet implemented — returns an error message.",
         "tags": [
           "Query"
         ],
@@ -633,13 +633,13 @@
         }
       }
     },
-    "/api/lsp/diagnostics": {
+    "/api/langservice/diagnostics": {
       "post": {
         "summary": "Compile check",
-        "operationId": "lspapi:diagnostics",
+        "operationId": "langservice:diagnostics",
         "description": "Compiles an XQuery expression and returns any syntax or static errors as diagnostics. Used by IDE integrations for real-time error checking.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -712,13 +712,13 @@
         }
       }
     },
-    "/api/lsp/completions": {
+    "/api/langservice/completions": {
       "post": {
         "summary": "Code completions",
-        "operationId": "lspapi:completions",
+        "operationId": "langservice:completions",
         "description": "Returns completion suggestions for an XQuery expression at the current cursor position. Includes functions, variables, and namespace prefixes.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -791,13 +791,13 @@
         }
       }
     },
-    "/api/lsp/hover": {
+    "/api/langservice/hover": {
       "post": {
         "summary": "Hover info",
-        "operationId": "lspapi:hover",
+        "operationId": "langservice:hover",
         "description": "Returns hover information (signature and documentation) for the symbol at the given line and column in the XQuery expression.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -860,13 +860,13 @@
         }
       }
     },
-    "/api/lsp/definition": {
+    "/api/langservice/definition": {
       "post": {
         "summary": "Go to definition",
-        "operationId": "lspapi:definition",
+        "operationId": "langservice:definition",
         "description": "Resolves the definition location for the symbol at the given line and column. Returns the file URI, line, and column of the definition.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -944,13 +944,13 @@
         }
       }
     },
-    "/api/lsp/references": {
+    "/api/langservice/references": {
       "post": {
         "summary": "Find all references",
-        "operationId": "lspapi:references",
+        "operationId": "langservice:references",
         "description": "Finds all references to the symbol at the given line and column within the current expression.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -1028,13 +1028,13 @@
         }
       }
     },
-    "/api/lsp/symbols": {
+    "/api/langservice/symbols": {
       "post": {
         "summary": "Document symbols",
-        "operationId": "lspapi:symbols",
+        "operationId": "langservice:symbols",
         "description": "Returns all symbols (functions, variables) defined in the given XQuery expression. Used for document outline views in IDEs.",
         "tags": [
-          "LSP"
+          "Language Service"
         ],
         "requestBody": {
           "required": true,
@@ -1408,7 +1408,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing path or content",
+            "description": "Bad request — missing path or content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1528,7 +1528,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing or invalid path",
+            "description": "Bad request — missing or invalid path",
             "content": {
               "application/json": {
                 "schema": {
@@ -1677,7 +1677,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing source or target",
+            "description": "Bad request — missing source or target",
             "content": {
               "application/json": {
                 "schema": {
@@ -1757,7 +1757,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing source or target",
+            "description": "Bad request — missing source or target",
             "content": {
               "application/json": {
                 "schema": {
@@ -1898,7 +1898,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "ISO datetime \u2014 only return resources modified after this time"
+            "description": "ISO datetime — only return resources modified after this time"
           }
         ],
         "responses": {
@@ -2033,7 +2033,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing path or invalid parameters",
+            "description": "Bad request — missing path or invalid parameters",
             "content": {
               "application/json": {
                 "schema": {
@@ -2321,7 +2321,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing required fields or user already exists",
+            "description": "Bad request — missing required fields or user already exists",
             "content": {
               "application/json": {
                 "schema": {
@@ -2495,7 +2495,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 invalid parameters",
+            "description": "Bad request — invalid parameters",
             "content": {
               "application/json": {
                 "schema": {
@@ -2694,7 +2694,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing name or group already exists",
+            "description": "Bad request — missing name or group already exists",
             "content": {
               "application/json": {
                 "schema": {
@@ -3115,7 +3115,7 @@
             }
           },
           "400": {
-            "description": "Bad request \u2014 missing package name/URL or invalid .xar file",
+            "description": "Bad request — missing package name/URL or invalid .xar file",
             "content": {
               "application/json": {
                 "schema": {
@@ -3327,7 +3327,7 @@
             }
           },
           "409": {
-            "description": "Other packages depend on this one \u2014 use force=true to override",
+            "description": "Other packages depend on this one — use force=true to override",
             "content": {
               "application/json": {
                 "schema": {
@@ -3722,6 +3722,28 @@
               "text/plain": {
                 "schema": {
                   "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/langservice/capabilities": {
+      "get": {
+        "summary": "Capability discovery",
+        "description": "Returns the set of language-service features the running exist-api instance supports.",
+        "operationId": "langservice:capabilities",
+        "tags": [
+          "Language Service"
+        ],
+        "responses": {
+          "200": {
+            "description": "Capability map",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }

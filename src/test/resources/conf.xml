@@ -16,10 +16,10 @@
             backwardCompatible="no" enforce-index-use="always"
             raise-error-on-failed-retrieval="no">
         <builtin-modules>
-            <module uri="http://exist-db.org/xquery/api"
-                    class="org.exist.xquery.modules.api.ApiModule"/>
-            <module uri="http://exist-db.org/xquery/lsp"
-                    class="org.exist.xquery.modules.api.lsp.LspModule"/>
+            <module uri="http://exist-db.org/xquery/langservice"
+                    class="org.exist.xquery.modules.openapi.langservice.LangServiceModule"/>
+            <module uri="http://exist-db.org/xquery/cursor"
+                    class="org.exist.xquery.modules.openapi.cursor.CursorModule"/>
         </builtin-modules>
     </xquery>
 
