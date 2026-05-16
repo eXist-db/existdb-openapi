@@ -6,7 +6,7 @@ module.exports = defineConfig({
   videosFolder: 'target/cypress/videos',
   downloadsFolder: 'target/cypress/downloads',
   e2e: {
-    baseUrl: 'http://localhost:8080/exist/apps/exist-api',
+    baseUrl: 'http://localhost:8080/exist/apps/existdb-openapi',
     supportFile: false,
     specPattern: 'src/test/cypress/e2e/**/*.cy.js'
   }

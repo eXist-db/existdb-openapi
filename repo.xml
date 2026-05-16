@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <meta xmlns="http://exist-db.org/xquery/repo" xmlns:repo="http://exist-db.org/xquery/repo">
-    <description>Unified platform API for eXist-db</description>
+    <description>OpenAPI-described HTTP surface for eXist-db</description>
     <author>eXist-db</author>
-    <website>https://github.com/eXist-db/exist-api</website>
+    <website>https://github.com/eXist-db/existdb-openapi</website>
     <status>stable</status>
     <license>GNU Lesser General Public License, version 2.1</license>
     <copyright>true</copyright>
     <type>application</type>
-    <target>exist-api</target>
+    <target>existdb-openapi</target>
     <prepare/>
     <finish/>
 </meta>

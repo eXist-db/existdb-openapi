@@ -184,7 +184,7 @@ describe('Priority 3: atom-editor-support endpoints', () => {
   describe('GET /api/db/sync', () => {
     it('returns sync tree', () => {
       cy.request({
-        url: '/api/db/sync?root=/db/apps/exist-api/modules',
+        url: '/api/db/sync?root=/db/apps/existdb-openapi/modules',
         auth
       }).then(response => {
         expect(response.status).to.eq(200);
@@ -202,7 +202,7 @@ describe('Priority 3: atom-editor-support endpoints', () => {
     it('supports timestamp filter', () => {
       // Use a future timestamp — should return empty children
       cy.request({
-        url: '/api/db/sync?root=/db/apps/exist-api/modules&timestamp=2099-01-01T00:00:00Z',
+        url: '/api/db/sync?root=/db/apps/existdb-openapi/modules&timestamp=2099-01-01T00:00:00Z',
         auth
       }).then(response => {
         // Resources should be filtered out (all older than 2099)
@@ -215,7 +215,7 @@ describe('Priority 3: atom-editor-support endpoints', () => {
   describe('GET /api/modules', () => {
     it('returns importable modules', () => {
       cy.request({
-        url: '/api/modules?path=/db/apps/exist-api/modules/db.xqm',
+        url: '/api/modules?path=/db/apps/existdb-openapi/modules/db.xqm',
         auth
       }).then(response => {
         expect(response.status).to.eq(200);
@@ -233,7 +233,7 @@ describe('Priority 3: atom-editor-support endpoints', () => {
 describe('Priority 4: ACL support', () => {
   it('db:list includes acl field', () => {
     cy.request({
-      url: '/api/db?path=/db/apps/exist-api/modules&glob=api.xq',
+      url: '/api/db?path=/db/apps/existdb-openapi/modules&glob=api.xq',
       auth
     }).then(response => {
       expect(response.body).to.have.property('acl');
@@ -247,7 +247,7 @@ describe('Priority 4: ACL support', () => {
 
   it('db:properties includes acl field', () => {
     cy.request({
-      url: '/api/db/properties?path=/db/apps/exist-api/modules/api.xq',
+      url: '/api/db/properties?path=/db/apps/existdb-openapi/modules/api.xq',
       auth
     }).then(response => {
       expect(response.body).to.have.property('acl');

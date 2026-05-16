@@ -17,10 +17,10 @@ describe('/api/site', () => {
       });
     });
 
-    it('includes exist-api itself', () => {
+    it('includes existdb-openapi itself', () => {
       cy.request({ url: '/api/site/apps', auth }).then(response => {
         const abbrevs = response.body.map(a => a.abbrev);
-        expect(abbrevs).to.include('exist-api');
+        expect(abbrevs).to.include('existdb-openapi');
       });
     });
   });
@@ -28,11 +28,11 @@ describe('/api/site', () => {
   describe('GET /api/site/resolve', () => {
     it('resolves link for installed app', () => {
       cy.request({
-        url: '/api/site/resolve?app=exist-api&path=/api/system/info',
+        url: '/api/site/resolve?app=existdb-openapi&path=/api/system/info',
         auth
       }).then(response => {
         expect(response.body).to.have.property('url');
-        expect(response.body.url).to.include('/exist/apps/exist-api/');
+        expect(response.body.url).to.include('/exist/apps/existdb-openapi/');
       });
     });
 

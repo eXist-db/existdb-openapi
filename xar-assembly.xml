@@ -15,8 +15,8 @@
 
     <status>stable</status>
 
-    <tag>exist-api</tag>
-    <tag>platform-api</tag>
+    <tag>existdb-openapi</tag>
+    <tag>openapi</tag>
     <tag>rest</tag>
     <tag>xquery</tag>
     <category id="libs">Libraries</category>
