@@ -38,10 +38,6 @@
             <directory>${basedir}/modules</directory>
             <outputDirectory>modules</outputDirectory>
         </fileSet>
-        <fileSet>
-            <directory>${basedir}/test/xqs</directory>
-            <outputDirectory>test/xqs</outputDirectory>
-        </fileSet>
     </fileSets>
 
     <!-- include the Java module JAR from this project -->
