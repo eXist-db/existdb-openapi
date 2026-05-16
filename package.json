@@ -1,8 +1,8 @@
 {
-  "name": "exist-api",
+  "name": "existdb-openapi",
   "private": true,
   "scripts": {
-    "deploy": "xst package install target/exist-api-*.xar",
+    "deploy": "xst package install target/existdb-openapi-*.xar",
     "test": "cypress run",
     "test:open": "cypress open"
   },

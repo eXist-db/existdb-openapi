@@ -21,10 +21,10 @@ describe('/api/packages', () => {
   describe('GET /api/packages/{name}', () => {
     it('gets package details by abbreviation with full metadata', () => {
       cy.request({
-        url: '/api/packages/exist-api',
+        url: '/api/packages/existdb-openapi',
         auth
       }).then(response => {
-        expect(response.body.abbrev).to.eq('exist-api');
+        expect(response.body.abbrev).to.eq('existdb-openapi');
         expect(response.body).to.have.property('components');
         expect(response.body).to.have.property('version');
         expect(response.body).to.have.property('name');
@@ -33,10 +33,10 @@ describe('/api/packages', () => {
 
     it('gets package details by abbreviation', () => {
       cy.request({
-        url: '/api/packages/exist-api',
+        url: '/api/packages/existdb-openapi',
         auth
       }).then(response => {
-        expect(response.body.abbrev).to.eq('exist-api');
+        expect(response.body.abbrev).to.eq('existdb-openapi');
       });
     });
 

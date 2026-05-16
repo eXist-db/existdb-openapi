@@ -5,7 +5,7 @@
 xquery version "3.1";
 
 (:~
- : URL rewriting controller for the exist-api package.
+ : URL rewriting controller for the existdb-openapi package.
  : Routes /api/* requests to the Roaster-based API entry point.
  :)
 

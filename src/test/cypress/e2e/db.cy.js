@@ -42,7 +42,7 @@ describe('/api/db', () => {
 
     it('supports glob filter', () => {
       cy.request({
-        url: '/api/db?path=/db/apps/exist-api/modules&glob=*.xqm',
+        url: '/api/db?path=/db/apps/existdb-openapi/modules&glob=*.xqm',
         auth
       }).then(response => {
         const resources = response.body.children.filter(c => c.type === 'resource');
@@ -54,7 +54,7 @@ describe('/api/db', () => {
 
     it('supports recursive listing', () => {
       cy.request({
-        url: '/api/db?path=/db/apps/exist-api&recursive=true&depth=1',
+        url: '/api/db?path=/db/apps/existdb-openapi&recursive=true&depth=1',
         auth
       }).then(response => {
         const collections = response.body.children.filter(c => c.type === 'collection');

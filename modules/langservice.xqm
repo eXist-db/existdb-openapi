@@ -121,7 +121,7 @@ declare function langservice:symbols($request as map(*)) {
 
 (:~
  : Capability discovery — returns the set of language-service features
- : the running exist-api instance supports. Modeled loosely on LSP's
+ : the running existdb-openapi instance supports. Modeled loosely on LSP's
  : ServerCapabilities, but for the REST surface.
  : GET /api/langservice/capabilities
  :)

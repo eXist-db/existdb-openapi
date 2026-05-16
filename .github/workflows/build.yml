@@ -78,7 +78,7 @@ jobs:
           echo "eXist did not become ready in time"
           exit 1
 
-      - name: Install roaster (XQuery dependency of exist-api)
+      - name: Install roaster (XQuery dependency of existdb-openapi)
         run: |
           npx --yes @existdb/xst@^4 package install from-registry \
             http://e-editiones.org/roaster \
@@ -88,9 +88,9 @@ jobs:
           EXISTDB_USER: admin
           EXISTDB_PASS: ""
 
-      - name: Deploy exist-api XAR
+      - name: Deploy existdb-openapi XAR
         run: |
-          npx --yes @existdb/xst@^4 package install local target/exist-api-*.xar
+          npx --yes @existdb/xst@^4 package install local target/existdb-openapi-*.xar
         env:
           EXISTDB_SERVER: http://localhost:8080
           EXISTDB_USER: admin
@@ -106,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: exist-api-xar
+          name: existdb-openapi-xar
           path: target/*.xar
           if-no-files-found: warn
 
