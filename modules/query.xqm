@@ -74,7 +74,7 @@ declare function query:execute($request as map(*)) {
  : @return array of result item maps
  :)
 declare function query:fetch($request as map(*)) {
-    let $cursor := $request?parameters?id
+    let $cursor-id := $request?parameters?id
     let $start  := ($request?parameters?start, 1)[1]  cast as xs:integer
     let $count  := ($request?parameters?count, 10)[1] cast as xs:integer
     (: cursor:fetch() expects string values for boolean params — keep as-is :)
@@ -83,7 +83,7 @@ declare function query:fetch($request as map(*)) {
         "indent": ($request?parameters?indent, "yes")[1]
     }
     return
-        cursor:fetch($cursor, $start, $count, $ser)
+        cursor:fetch($cursor-id, $start, $count, $ser)
 };
 
 (:~
@@ -94,8 +94,8 @@ declare function query:fetch($request as map(*)) {
  : @return map with status
  :)
 declare function query:close($request as map(*)) {
-    let $cursor := $request?parameters?id
-    let $closed := cursor:close($cursor)
+    let $cursor-id := $request?parameters?id
+    let $closed := cursor:close($cursor-id)
     return
         map { "closed": $closed }
 };

@@ -127,13 +127,13 @@ declare function langservice:symbols($request as map(*)) {
  :)
 declare function langservice:capabilities($request as map(*)) {
     map {
-        "diagnostics":  map { "available": true, "provider": "exist-xquery-parser" },
-        "completions":  map { "available": true, "positional": false },
-        "hover":        map { "available": true, "markupKinds": [ "plaintext" ] },
-        "definition":   map { "available": true, "multiTarget": false },
-        "references":   map { "available": true, "includeDeclaration": false },
-        "symbols":      map { "available": true, "hierarchical": false },
-        "cursor":       map { "available": true },
+        "diagnostics":  map { "available": true(), "provider": "exist-xquery-parser" },
+        "completions":  map { "available": true(), "positional": false() },
+        "hover":        map { "available": true(), "markupKinds": [ "plaintext" ] },
+        "definition":   map { "available": true(), "multiTarget": false() },
+        "references":   map { "available": true(), "includeDeclaration": false() },
+        "symbols":      map { "available": true(), "hierarchical": false() },
+        "cursor":       map { "available": true() },
         "version":      "0.9.0-SNAPSHOT"
     }
 };
