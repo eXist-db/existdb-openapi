@@ -104,7 +104,7 @@ jobs:
 
       - name: Upload XAR artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: exist-api-xar
           path: target/*.xar
@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload Cypress artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cypress-output
           path: |
