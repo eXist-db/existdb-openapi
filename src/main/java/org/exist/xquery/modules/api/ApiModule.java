@@ -52,7 +52,7 @@ public class ApiModule extends AbstractInternalModule {
     public static final FunctionDef[] functions = functionDefs();
 
     public ApiModule(final Map<String, List<?>> parameters) {
-        super(functions, parameters, true);
+        super(functions, parameters);
 
         final long maxSize = getLongParam(parameters, PARAM_CURSOR_MAXIMUM_SIZE, 100);
         final long expireMs = getLongParam(parameters, PARAM_CURSOR_EXPIRE_AFTER_ACCESS, 300_000);

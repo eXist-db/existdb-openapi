@@ -43,7 +43,7 @@ public class LspModule extends AbstractInternalModule {
     );
 
     public LspModule(final Map<String, List<?>> parameters) {
-        super(functions, parameters, true);
+        super(functions, parameters);
     }
 
     @Override
