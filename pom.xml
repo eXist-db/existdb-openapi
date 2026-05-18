@@ -44,6 +44,11 @@
 
         <exist.version>7.0.0-SNAPSHOT</exist.version>
 
+        <!-- Node toolchain for Cypress integration tests (frontend-maven-plugin).
+             Node 24 is current LTS. -->
+        <node.version>v24.11.1</node.version>
+        <npm.version>11.8.0</npm.version>
+
         <!-- used in the EXPath Package Descriptor -->
         <package-name>http://exist-db.org/pkg/api</package-name>
         <package-abbrev>exist-api</package-abbrev>
@@ -79,6 +84,40 @@
             </exclusions>
         </dependency>
 
+        <!-- Transitively supplied by exist-core, but declared explicitly because
+             our code references types from these libs directly (required by
+             maven-dependency-plugin's analyze rule inherited from exist-apps-parent). -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+            <version>2.26.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.2.4</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>antlr</groupId>
+            <artifactId>antlr</artifactId>
+            <version>2.7.7</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.findbugs</groupId>
+            <artifactId>jsr305</artifactId>
+            <version>3.0.2</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.lacuna</groupId>
+            <artifactId>bifurcan</artifactId>
+            <version>0.2.0-rc1</version>
+            <scope>provided</scope>
+        </dependency>
+
     </dependencies>
 
     <profiles>
@@ -107,6 +146,68 @@
                     <scope>test</scope>
                 </dependency>
             </dependencies>
+        </profile>
+
+        <!-- End-to-end Cypress tests via frontend-maven-plugin.
+             Requires a running eXist instance on http://localhost:8080
+             with the built XAR deployed (see Step "Run e2e tests" in README).
+             Activate with: mvn verify -Pe2e-tests -->
+        <profile>
+            <id>e2e-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>1.15.4</version>
+                        <configuration>
+                            <nodeVersion>${node.version}</nodeVersion>
+                            <npmVersion>${npm.version}</npmVersion>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>install node and npm</id>
+                                <goals>
+                                    <goal>install-node-and-npm</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                            </execution>
+                            <execution>
+                                <id>npm ci</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                                <configuration>
+                                    <!-- ignore-scripts skips Cypress's postinstall binary
+                                         fetch; we install it explicitly below for cacheability. -->
+                                    <arguments>ci --ignore-scripts</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>cypress install</id>
+                                <goals>
+                                    <goal>npx</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                                <configuration>
+                                    <arguments>cypress install</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>cypress run</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>integration-test</phase>
+                                <configuration>
+                                    <arguments>test</arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 

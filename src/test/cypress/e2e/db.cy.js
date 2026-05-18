@@ -211,7 +211,7 @@ describe('/api/db', () => {
         url: '/api/db/move',
         method: 'POST',
         auth,
-        body: { source: `${testCollection}/sub/test.xml`, target: `${testCollection}/moved` }
+        body: { source: `${testCollection}/sub/test.xml`, target: `${testCollection}/moved/test.xml` }
       }).then(response => {
         expect(response.body).to.have.property('moved');
       });

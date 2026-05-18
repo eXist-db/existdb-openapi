@@ -2,10 +2,12 @@
   "name": "exist-api",
   "private": true,
   "scripts": {
+    "deploy": "xst package install target/exist-api-*.xar",
     "test": "cypress run",
     "test:open": "cypress open"
   },
   "devDependencies": {
+    "@existdb/xst": "^4.1.2",
     "cypress": "^15.13.0"
   }
 }
