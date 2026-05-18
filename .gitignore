@@ -7,7 +7,6 @@ target/
 .project
 *.xar
 node_modules/
-package-lock.json
 .existdb.json
 .env
 
