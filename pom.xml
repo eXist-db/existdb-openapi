@@ -44,6 +44,11 @@
 
         <exist.version>7.0.0-SNAPSHOT</exist.version>
 
+        <!-- Node toolchain for Cypress integration tests (frontend-maven-plugin).
+             Node 24 is current LTS. -->
+        <node.version>v24.11.1</node.version>
+        <npm.version>11.8.0</npm.version>
+
         <!-- used in the EXPath Package Descriptor -->
         <package-name>http://exist-db.org/pkg/api</package-name>
         <package-abbrev>exist-api</package-abbrev>
@@ -141,6 +146,68 @@
                     <scope>test</scope>
                 </dependency>
             </dependencies>
+        </profile>
+
+        <!-- End-to-end Cypress tests via frontend-maven-plugin.
+             Requires a running eXist instance on http://localhost:8080
+             with the built XAR deployed (see Step "Run e2e tests" in README).
+             Activate with: mvn verify -Pe2e-tests -->
+        <profile>
+            <id>e2e-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>1.15.4</version>
+                        <configuration>
+                            <nodeVersion>${node.version}</nodeVersion>
+                            <npmVersion>${npm.version}</npmVersion>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>install node and npm</id>
+                                <goals>
+                                    <goal>install-node-and-npm</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                            </execution>
+                            <execution>
+                                <id>npm ci</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                                <configuration>
+                                    <!-- ignore-scripts skips Cypress's postinstall binary
+                                         fetch; we install it explicitly below for cacheability. -->
+                                    <arguments>ci --ignore-scripts</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>cypress install</id>
+                                <goals>
+                                    <goal>npx</goal>
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                                <configuration>
+                                    <arguments>cypress install</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>cypress run</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>integration-test</phase>
+                                <configuration>
+                                    <arguments>test</arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 
