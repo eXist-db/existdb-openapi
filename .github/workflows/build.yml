@@ -78,9 +78,10 @@ jobs:
           echo "eXist did not become ready in time"
           exit 1
 
-      - name: Deploy XAR to eXist
+      - name: Deploy XAR to eXist (resolves transitive deps via public-repo)
         run: |
-          npx --yes @existdb/xst@^4 package install target/exist-api-*.xar
+          npx --yes @existdb/xst@^4 package install local target/exist-api-*.xar \
+            --registry https://exist-db.org/exist/apps/public-repo/
         env:
           EXISTDB_SERVER: http://localhost:8080
           EXISTDB_USER: admin
