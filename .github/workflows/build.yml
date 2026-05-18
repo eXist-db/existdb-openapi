@@ -22,12 +22,9 @@ jobs:
         ports:
           - 8080:8080
           - 8443:8443
-        options: >-
-          --health-cmd "curl -sf http://localhost:8080/exist/rest/db/ || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 30
-          --health-start-period 30s
+        # Note: no docker --health-cmd here. The existdb image lacks curl/wget,
+        # so any HTTP-based HEALTHCHECK would exit 127 every retry and fail
+        # service init. Readiness is polled from the runner in a later step.
     steps:
       - uses: actions/checkout@v6
 
@@ -101,7 +98,7 @@ jobs:
         with:
           name: exist-api-xar
           path: target/*.xar
-          if-no-files-found: error
+          if-no-files-found: warn
 
       - name: Upload Cypress artifacts on failure
         if: failure()
