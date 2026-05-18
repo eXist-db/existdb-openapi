@@ -78,10 +78,19 @@ jobs:
           echo "eXist did not become ready in time"
           exit 1
 
-      - name: Deploy XAR to eXist (resolves transitive deps via public-repo)
+      - name: Install roaster (XQuery dependency of exist-api)
         run: |
-          npx --yes @existdb/xst@^4 package install local target/exist-api-*.xar \
+          npx --yes @existdb/xst@^4 package install from-registry \
+            http://e-editiones.org/roaster \
             --registry https://exist-db.org/exist/apps/public-repo/
+        env:
+          EXISTDB_SERVER: http://localhost:8080
+          EXISTDB_USER: admin
+          EXISTDB_PASS: ""
+
+      - name: Deploy exist-api XAR
+        run: |
+          npx --yes @existdb/xst@^4 package install local target/exist-api-*.xar
         env:
           EXISTDB_SERVER: http://localhost:8080
           EXISTDB_USER: admin
