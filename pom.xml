@@ -13,7 +13,7 @@
 
     <groupId>org.exist-db</groupId>
     <artifactId>existdb-openapi</artifactId>
-    <version>0.9.0</version>
+    <version>0.9.1</version>
 
     <name>eXist-db OpenAPI</name>
     <description>OpenAPI-described HTTP surface for eXist-db: database management, query execution, language services, user management, package management, search, and cross-app linking</description>
