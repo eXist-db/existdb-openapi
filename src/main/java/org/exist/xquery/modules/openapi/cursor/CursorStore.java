@@ -52,6 +52,9 @@ public final class CursorStore {
     private static final CursorStore INSTANCE = new CursorStore();
 
     private volatile Cache<String, CursorEntry> store;
+    private volatile long configuredMaximumSize = -1;
+    private volatile long configuredExpireAfterAccessMs = -1;
+    private volatile long configuredMaximumWeight = -1;
 
     private CursorStore() {
         // Initialize with defaults; configure() may replace this later
@@ -63,18 +66,37 @@ public final class CursorStore {
     }
 
     /**
-     * (Re)configure the cursor store. Called from {@link CursorModule} constructor
-     * when module parameters are available.
+     * Configure the cursor store. Called from {@link CursorModule} constructor,
+     * which fires every time the module is loaded into an XQuery context — i.e.
+     * potentially once per request that imports {@code cursor:}. The configuration
+     * is therefore idempotent: subsequent calls with the same parameters are
+     * no-ops, preserving live cursors across requests. A call with new parameters
+     * replaces the cache (and necessarily invalidates existing cursors); in
+     * practice this only happens at deployment / module-parameter update time.
      *
      * @param maximumSize max concurrent cursors (0 = unlimited count)
      * @param expireAfterAccessMs inactivity timeout in milliseconds
      * @param maximumWeight max total estimated memory in bytes (0 = unlimited)
      */
-    public static void configure(final long maximumSize, final long expireAfterAccessMs,
+    public static synchronized void configure(final long maximumSize, final long expireAfterAccessMs,
                                   final long maximumWeight) {
-        // Invalidate all existing cursors before replacing the cache
+        if (maximumSize == INSTANCE.configuredMaximumSize
+                && expireAfterAccessMs == INSTANCE.configuredExpireAfterAccessMs
+                && maximumWeight == INSTANCE.configuredMaximumWeight) {
+            // Same parameters as last call — preserve the existing cache and its live cursors
+            return;
+        }
+        if (INSTANCE.configuredMaximumSize >= 0) {
+            // Reconfiguration with new parameters — log to surface unexpected re-init
+            logger.info("Cursor store reconfigured: was ({}, {}ms, {}); now ({}, {}ms, {}); existing cursors will be invalidated",
+                    INSTANCE.configuredMaximumSize, INSTANCE.configuredExpireAfterAccessMs,
+                    INSTANCE.configuredMaximumWeight, maximumSize, expireAfterAccessMs, maximumWeight);
+        }
         INSTANCE.store.invalidateAll();
         INSTANCE.store = buildCache(maximumSize, expireAfterAccessMs, maximumWeight);
+        INSTANCE.configuredMaximumSize = maximumSize;
+        INSTANCE.configuredExpireAfterAccessMs = expireAfterAccessMs;
+        INSTANCE.configuredMaximumWeight = maximumWeight;
     }
 
     private static Cache<String, CursorEntry> buildCache(final long maximumSize,
