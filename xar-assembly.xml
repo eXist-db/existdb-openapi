@@ -62,6 +62,30 @@
     </components>
 
     <changelog>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.3">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Back-fill release-history entries in this changelog (no functional change)</li>
+            </ul>
+        </change>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.2">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Demote "Cursor store: maximumSize=…" log line from INFO to DEBUG (<a href="https://github.com/eXist-db/existdb-openapi/pull/25">#25</a>)</li>
+            </ul>
+        </change>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.1">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Fix <code>cursor:fetch</code> returning "Cursor not found or expired" 500s under concurrent use (<a href="https://github.com/eXist-db/existdb-openapi/pull/24">#24</a>) — <code>CursorStore.configure()</code> is now idempotent across XQuery context loads</li>
+            </ul>
+        </change>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.0">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Rename from <code>exist-api</code> to <code>existdb-openapi</code> (<a href="https://github.com/eXist-db/existdb-openapi/pull/18">#18</a>); split <code>lsp</code> namespace into <code>langservice</code> + <code>cursor</code></li>
+                <li>SPDX license headers (<a href="https://github.com/eXist-db/existdb-openapi/pull/10">#10</a>); CI workflow with Cypress against <code>existdb/existdb:latest</code> (<a href="https://github.com/eXist-db/existdb-openapi/pull/11">#11</a>)</li>
+                <li>J21 idiom audit: text blocks for multi-line <code>FunctionSignature</code> descriptions</li>
+                <li>Drop <code>functionsOrdered=true</code> from <code>CursorModule</code> and <code>LangServiceModule</code> (use linear-scan 2-arg <code>super(…)</code>; see <a href="https://github.com/eXist-db/exist/issues/6378">eXist-db/exist#6378</a>)</li>
+                <li>Comprehensive README</li>
+            </ul>
+        </change>
         <change xmlns="http://exist-db.org/xquery/repo" version="0.9.0-SNAPSHOT">
             <ul xmlns="http://www.w3.org/1999/xhtml">
                 <li>Initial release — absorbs exist-lsp, adds REST API for db, users, packages, search, site</li>
