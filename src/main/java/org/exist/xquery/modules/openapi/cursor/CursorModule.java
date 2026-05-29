@@ -58,7 +58,7 @@ public class CursorModule extends AbstractInternalModule {
         final long maxWeight = getLongParam(parameters, PARAM_CURSOR_MAXIMUM_WEIGHT, 0);
 
         CursorStore.configure(maxSize, expireMs, maxWeight);
-        logger.info("Cursor store: maximumSize={}, expireAfterAccess={}ms, maximumWeight={}",
+        logger.debug("Cursor store: maximumSize={}, expireAfterAccess={}ms, maximumWeight={}",
                 maxSize, expireMs, maxWeight > 0 ? maxWeight : "unlimited");
     }
 
