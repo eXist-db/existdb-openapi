@@ -1,0 +1,19 @@
+src/main/java/org/exist/xquery/modules/openapi/cursor/CursorModule.java
+  s_75a285e9321574::t_dd44610bceb409 61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0c0e774fa100c43e7ad358368ee2aa69127362c9",
+  "prompts": {},
+  "sessions": {
+    "s_75a285e9321574": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_18c53f47fffehdV4HI2INmZUto",
+        "model": "big-pickle"
+      },
+      "human_author": "duncdrum <d.paterson@me.com>"
+    }
+  }
+}
