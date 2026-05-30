@@ -8,6 +8,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.exist.source.Source;
+import org.exist.storage.XQueryPool;
+import org.exist.xquery.CompiledXQuery;
 import org.exist.xquery.XQueryContext;
 import org.exist.xquery.value.Sequence;
 
@@ -106,8 +109,20 @@ public final class CursorStore {
                 .expireAfterAccess(expireAfterAccessMs, TimeUnit.MILLISECONDS)
                 .removalListener((key, value, cause) -> {
                     logger.debug("Cursor {} evicted ({})", key, cause);
-                    if (value instanceof CursorEntry entry && entry.evalContext() != null) {
-                        entry.evalContext().runCleanupTasks();
+                    if (value instanceof CursorEntry entry) {
+                        if (entry.evalContext() != null) {
+                            entry.evalContext().runCleanupTasks();
+                        }
+                        // Return the compiled query to the XQueryPool so the next
+                        // request with the same expression can skip parse+compile.
+                        // Held with the cursor (not returned at exec time) because
+                        // the cursor's stored Sequence depends on the context
+                        // staying unmutated until fetches complete.
+                        if (entry.source() != null && entry.compiled() != null) {
+                            final XQueryPool pool = entry.evalContext().getBroker()
+                                    .getBrokerPool().getXQueryPool();
+                            pool.returnCompiledXQuery(entry.source(), entry.compiled());
+                        }
                     }
                 });
 
@@ -132,11 +147,15 @@ public final class CursorStore {
     /**
      * Store a result sequence and return the cursor ID.
      * The evalContext is kept alive so that node references in the sequence
-     * remain valid across fetch requests.
+     * remain valid across fetch requests. When {@code source} and
+     * {@code compiled} are non-null, the compiled query is returned to the
+     * shared {@link XQueryPool} when the cursor is evicted or closed.
      */
     public String put(final String cursorId, final Sequence result, final int itemCount,
-                      final XQueryContext evalContext) {
-        store.put(cursorId, new CursorEntry(result, itemCount, evalContext));
+                      final XQueryContext evalContext,
+                      @Nullable final Source source,
+                      @Nullable final CompiledXQuery compiled) {
+        store.put(cursorId, new CursorEntry(result, itemCount, evalContext, source, compiled));
         logger.debug("Cursor {} stored ({} items)", cursorId, itemCount);
         return cursorId;
     }
@@ -163,8 +182,12 @@ public final class CursorStore {
 
     /**
      * A cached cursor entry holding the result sequence, metadata,
-     * and the eval context (kept alive so node references remain valid).
+     * the eval context (kept alive so node references remain valid),
+     * and — when pooling is in use — the source and compiled query so
+     * the cursor's eviction can return the compiled query to the
+     * {@link XQueryPool} for reuse by subsequent identical requests.
      */
-    public record CursorEntry(Sequence result, int itemCount, XQueryContext evalContext) {
+    public record CursorEntry(Sequence result, int itemCount, XQueryContext evalContext,
+                              @Nullable Source source, @Nullable CompiledXQuery compiled) {
     }
 }
