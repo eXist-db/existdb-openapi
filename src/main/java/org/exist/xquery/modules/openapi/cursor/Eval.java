@@ -7,6 +7,7 @@ package org.exist.xquery.modules.openapi.cursor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.exist.source.StringSource;
+import org.exist.xmldb.XmldbURI;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.CompiledXQuery;
 import org.exist.xquery.FunctionSignature;
@@ -14,11 +15,13 @@ import org.exist.xquery.XPathException;
 import org.exist.xquery.XQuery;
 import org.exist.xquery.XQueryContext;
 import org.exist.xquery.functions.map.MapType;
+import org.exist.xquery.value.AnyURIValue;
 import org.exist.xquery.value.IntegerValue;
 import org.exist.xquery.value.Sequence;
 import org.exist.xquery.value.StringValue;
 import org.exist.xquery.value.Type;
 
+import java.net.URISyntaxException;
 import java.util.UUID;
 
 import static org.exist.xquery.FunctionDSL.*;
@@ -82,15 +85,27 @@ public class Eval extends BasicFunction {
             moduleLoadPath = null;
         }
 
-        // Copy the parent context to preserve broker, base URI, default collection,
-        // and static context — same approach as util:eval() in Eval.doEval()
+        // Use a fresh XQueryContext (like RESTServer._query) rather than
+        // copyContext(). copyContext() inherits the parent's cached
+        // staticDocuments — for a caller in /db/apps/existdb-openapi the
+        // optimizer ends up walking that collection regardless of what
+        // staticallyKnownDocuments we set here. A fresh context cleanly
+        // takes whatever scope we declare below.
         final XQuery xqueryService = context.getBroker().getBrokerPool().getXQueryService();
-        final XQueryContext evalContext = context.copyContext();
+        final XQueryContext evalContext = new XQueryContext(context.getBroker().getBrokerPool());
         evalContext.setShared(true);
         try {
             if (moduleLoadPath != null) {
                 evalContext.setModuleLoadPath(moduleLoadPath);
             }
+
+            // Scope unprefixed path expressions (//foo, collection()) and resolve
+            // relative URIs (doc("x.xml")) against the collection derived from
+            // moduleLoadPath. Mirrors RESTServer._query, which sets these from
+            // the request URL; without them, `//p` walks nothing.
+            final XmldbURI scopeUri = resolveScope(moduleLoadPath);
+            evalContext.setStaticallyKnownDocuments(new XmldbURI[]{scopeUri});
+            evalContext.setBaseURI(new AnyURIValue(scopeUri.toString()));
 
             final CompiledXQuery compiled;
             final Sequence result;
@@ -141,5 +156,37 @@ public class Eval extends BasicFunction {
             evalContext.runCleanupTasks();
             throw e;
         }
+    }
+
+    /**
+     * Derive a collection URI from {@code moduleLoadPath} for use with
+     * {@link XQueryContext#setStaticallyKnownDocuments} and
+     * {@link XQueryContext#setBaseURI}.
+     *
+     * <ul>
+     *   <li>{@code xmldb:exist:///db/apps/foo} → {@code /db/apps/foo}</li>
+     *   <li>{@code /db/apps/foo} → {@code /db/apps/foo}</li>
+     *   <li>{@code null}, {@code "."}, or non-xmldb (file:, http:) → {@code /db}</li>
+     * </ul>
+     *
+     * Defaulting to {@code /db} when no usable path is given matches the
+     * behaviour of {@code /exist/rest/db} (the REST root) — `//p` walks the
+     * whole database rather than silently returning nothing.
+     */
+    private static XmldbURI resolveScope(final String moduleLoadPath) {
+        if (moduleLoadPath == null || moduleLoadPath.isEmpty() || ".".equals(moduleLoadPath)) {
+            return XmldbURI.ROOT_COLLECTION_URI;
+        }
+        if (moduleLoadPath.startsWith(XmldbURI.XMLDB_URI_PREFIX)) {
+            try {
+                return XmldbURI.xmldbUriFor(moduleLoadPath, false).toCollectionPathURI();
+            } catch (final URISyntaxException e) {
+                return XmldbURI.ROOT_COLLECTION_URI;
+            }
+        }
+        if (moduleLoadPath.startsWith("/")) {
+            return XmldbURI.create(moduleLoadPath);
+        }
+        return XmldbURI.ROOT_COLLECTION_URI;
     }
 }
