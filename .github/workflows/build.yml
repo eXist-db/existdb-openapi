@@ -96,6 +96,35 @@ jobs:
           EXISTDB_USER: admin
           EXISTDB_PASS: ""
 
+      # The existdb/existdb image ships with existdb-openapi pre-installed.
+      # `xst package install` replaces the .xar on disk and updates the
+      # EXPath repo metadata, but Java's classloader has already cached
+      # the previous JAR's classes by name. URLClassLoader caches classes
+      # by fully-qualified name and has no API to unload them — so adding
+      # the new JAR's URL doesn't displace the already-loaded class for
+      # e.g. org.exist.xquery.modules.openapi.cursor.Eval. This is a
+      # general property of how eXist's single shared EXistClassLoader
+      # handles package replacement (verified in exist-core's
+      # ClasspathHelper + ExistRepository); a JVM restart is the only way
+      # to pick up the new classes. Without this step the test container
+      # silently keeps serving the pre-installed package's Java code.
+      - name: Restart eXist to load updated Java classes
+        run: |
+          docker restart "$(docker ps --filter 'ancestor=existdb/existdb:latest' -q | head -1)"
+
+      - name: Wait for eXist to be ready (after restart)
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/exist/rest/db/ >/dev/null 2>&1; then
+              echo "eXist is up"
+              exit 0
+            fi
+            echo "Waiting for eXist... ($i/60)"
+            sleep 5
+          done
+          echo "eXist did not become ready in time"
+          exit 1
+
       - name: Run Cypress e2e tests via Maven
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
