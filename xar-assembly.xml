@@ -21,7 +21,7 @@
     <tag>xquery</tag>
     <category id="libs">Libraries</category>
 
-    <dependency processor="http://exist-db.org" semver-min="${exist.version}"/>
+    <dependency processor="http://exist-db.org" semver-min="7.0.0-alpha"/>
 
     <target>${package-abbrev}</target>
 
