@@ -56,8 +56,8 @@ declare function langservice:completions($request as map(*)) {
 declare function langservice:hover($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
-    let $line := $body?line
-    let $column := $body?column
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
     let $module-load-path := $body?module-load-path
     return
         if (empty($expression) or empty($line) or empty($column))
@@ -74,8 +74,8 @@ declare function langservice:hover($request as map(*)) {
 declare function langservice:definition($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
-    let $line := $body?line
-    let $column := $body?column
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
     let $module-load-path := $body?module-load-path
     return
         if (empty($expression) or empty($line) or empty($column))
@@ -92,8 +92,8 @@ declare function langservice:definition($request as map(*)) {
 declare function langservice:references($request as map(*)) {
     let $body := $request?body
     let $expression := $body?expression
-    let $line := $body?line
-    let $column := $body?column
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
     let $module-load-path := $body?module-load-path
     return
         if (empty($expression) or empty($line) or empty($column))
