@@ -62,6 +62,11 @@
     </components>
 
     <changelog>
+        <change xmlns="http://exist-db.org/xquery/repo" version="0.9.6">
+            <ul xmlns="http://www.w3.org/1999/xhtml">
+                <li>Fix <code>POST /api/langservice/hover</code>, <code>/definition</code>, and <code>/references</code> returning HTTP 500 (<code>err:XPTY0004</code>) for every request: JSON numbers in the request body parse as <code>xs:double</code>, but the underlying <code>lang:hover</code> / <code>lang:definition</code> / <code>lang:references</code> functions declare <code>xs:integer</code> parameters. Coerce <code>line</code> and <code>column</code> to <code>xs:integer</code> in the langservice handler (<a href="https://github.com/eXist-db/existdb-openapi/pull/30">#30</a>). Adds a Cypress spec covering all seven langservice endpoints so this class of regression can't ship silently again.</li>
+            </ul>
+        </change>
         <change xmlns="http://exist-db.org/xquery/repo" version="0.9.5">
             <ul xmlns="http://www.w3.org/1999/xhtml">
                 <li>Performance: <code>cursor:eval</code> now reuses compiled queries via the shared <code>XQueryPool</code>, mirroring <code>RESTServer._query</code>'s pattern (<a href="https://github.com/eXist-db/existdb-openapi/pull/27">#27</a>). For repeated identical queries — typical of interactive eXide use — compile time drops from a typical 2–5&#8239;ms to 0–1&#8239;ms; for queries with substantial parse/analysis cost the saving scales with expression complexity.</li>
