@@ -252,7 +252,13 @@ declare function db:store-resource($request as map(*)) {
      : of truth. The pre-fix code defaulted to "application/xml", which
      : routed .xq / .xqm / image content into the XML parser and either
      : failed (XPST0003 / "Content is not allowed in prolog") or stored
-     : with the wrong content type. :)
+     : with the wrong content type.
+     :
+     : For binary uploads — large or otherwise — clients should use the
+     : path-in-URL sibling endpoint `PUT /api/db/resource/{path}` with the
+     : raw bytes as the request body and the mime in the Content-Type
+     : header. That route streams via eXist's REST servlet, bypassing
+     : Roaster's buffered request-body pipeline. :)
     let $mime-type := $body?mime-type
     return
         if (empty($path) or empty($content))
@@ -283,9 +289,8 @@ declare function db:store-resource($request as map(*)) {
                      : XML-class type (application/xml, text/html,
                      : application/xhtml+xml, …). Surface the parse error
                      : as a 400 with the eXist message; clients who want
-                     : the raw bytes preserved can re-send with an
-                     : explicit `mime-type: application/octet-stream`,
-                     : which routes around the XML parser. :)
+                     : the raw bytes preserved should use the path-in-URL
+                     : sibling endpoint `PUT /api/db/resource/{path}`. :)
                     roaster:response(400, map {
                         "error": replace(replace($err:description, "^.*XMLDBException:", ""), "\[at.*\]$", "")
                     })

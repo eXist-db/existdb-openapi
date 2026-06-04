@@ -1296,7 +1296,7 @@
                     },
                     "content": {
                       "type": "string",
-                      "description": "Resource content (text or base64-encoded for binary)"
+                      "description": "Resource content. UTF-8 text for text-class resources; for binary resources the JSON envelope is lossy — use the sibling endpoint `GET /api/db/resource/{path}` to fetch raw bytes."
                     },
                     "mime-type": {
                       "type": "string",
@@ -1326,9 +1326,9 @@
         }
       },
       "put": {
-        "summary": "Store resource",
+        "summary": "Store resource (JSON envelope, text content)",
         "operationId": "db:store-resource",
-        "description": "Stores or updates a resource in the database. The parent collection must exist. When `mime-type` is omitted the server looks up the appropriate MIME type for the path's filename extension via eXist's `mime-types.xml` (e.g. `.xq` → `application/xquery`, `.svg` → `image/svg+xml`, `.html` → `text/html`). Clients only need to send `mime-type` when they want to override that mapping (e.g. force an `.html` file to be stored as `application/xhtml+xml`).",
+        "description": "Stores or updates a *text* resource in the database via a JSON envelope. The parent collection must exist. When `mime-type` is omitted the server looks up the appropriate MIME type for the path's filename extension via eXist's `mime-types.xml` (e.g. `.xq` → `application/xquery`, `.svg` → `image/svg+xml`, `.html` → `text/html`). Send `mime-type` only to override that mapping (e.g. force an `.html` file to be stored as `application/xhtml+xml`).\n\nFor **binary uploads** (PDFs, images, fonts, zips, …) and large text uploads, use the sibling path-in-URL endpoint `PUT /api/db/resource/{path}` with the raw bytes as the request body. That route streams via eXist's REST servlet without buffering the body in JVM memory.",
         "tags": [
           "Database"
         ],
@@ -1349,7 +1349,7 @@
                   },
                   "content": {
                     "type": "string",
-                    "description": "Resource content to store"
+                    "description": "Resource content to store (UTF-8 text)."
                   },
                   "mime-type": {
                     "type": "string",
@@ -1776,6 +1776,69 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/db/resource/{path}": {
+      "description": "Raw-bytes (path-in-URL) variant of /api/db/resource. The DB path is part of the URL rather than a JSON field. The request/response body is the resource's raw bytes — suitable for binary uploads/downloads (PDFs, images, fonts, zips) and large text uploads where the JSON envelope's buffering would be wasteful or hit JVM memory limits. Internally these requests are forwarded by controller.xq to eXist's REST servlet (`/exist/rest/db/...`), which streams the request body directly into the broker without materializing it in JVM memory. Use this endpoint when streaming matters; use `/api/db/resource` (path-in-JSON-body) when you want the metadata-bundled JSON envelope back.",
+      "parameters": [
+        {
+          "name": "path",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "description": "Target DB path, e.g. `/db/apps/myapp/icon.png`. The leading `/db/` is part of the URL.",
+          "example": "/db/apps/myapp/icon.png"
+        }
+      ],
+      "put": {
+        "summary": "Store resource (raw bytes, streaming)",
+        "description": "Stores or updates a resource with the request body taken as the raw bytes. The `Content-Type` request header sets the MIME type; clients should send the appropriate media type (e.g., `image/png`, `application/pdf`, `application/xquery`) so the stored resource is correctly labeled. Streams through eXist's REST servlet — suitable for large binary uploads.",
+        "tags": ["Database"],
+        "requestBody": {
+          "required": true,
+          "description": "Raw resource bytes. The `Content-Type` header selects the MIME type.",
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Resource created" },
+          "200": { "description": "Resource updated" },
+          "400": { "description": "Bad request" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Permission denied" }
+        }
+      },
+      "get": {
+        "summary": "Fetch resource (raw bytes, streaming)",
+        "description": "Returns the resource's raw bytes. The response's `Content-Type` header reflects the stored MIME type. Suitable for downloading binaries and for any client that wants to stream the body directly to disk.",
+        "tags": ["Database"],
+        "responses": {
+          "200": {
+            "description": "Resource bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": { "description": "Resource not found" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Permission denied" }
+        }
+      },
+      "delete": {
+        "summary": "Remove resource",
+        "description": "Deletes the resource at the given DB path.",
+        "tags": ["Database"],
+        "responses": {
+          "200": { "description": "Resource removed" },
+          "404": { "description": "Resource not found" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Permission denied" }
         }
       }
     },

@@ -31,6 +31,32 @@ else if (matches($exist:path, "^/+modules/.*\.json$")) then
     (: serve OpenAPI spec files directly :)
     <dispatch xmlns="http://exist.sourceforge.net/NS/exist"/>
 
+else if (matches($exist:path, "^/+api/db/resource/.+")) then
+    (: Path-in-URL variant: raw bytes streaming via eXist's REST servlet.
+     :
+     : Use this for binary uploads/downloads (PDFs, images, fonts, zips)
+     : and for any text upload where the JSON envelope's buffering would
+     : be wasteful and the metadata it bundles isn't needed. The bare
+     : /api/db/resource endpoint (path-in-JSON-body) stays the canonical
+     : metadata-bundled path for editors that want signature + mime +
+     : content in a single roundtrip.
+     :
+     : Forwarding via controller.xq is an internal servlet dispatch —
+     : the original request's headers, auth context, and body all flow
+     : through unchanged. Crucially, /exist/rest's RESTServer streams
+     : the body straight to broker.storeDocument(InputSource) without
+     : materializing it in JVM memory, so this path is suitable for
+     : large binaries that would OOM Roaster's parse-the-body pipeline. :)
+    let $db-path := replace($exist:path, "^/+api/db/resource", "")
+    return
+        <dispatch xmlns="http://exist.sourceforge.net/NS/exist">
+            <forward url="/rest{$db-path}" absolute="yes">
+                <set-header name="Access-Control-Allow-Origin" value="*"/>
+                <set-header name="Access-Control-Allow-Methods" value="GET, PUT, DELETE, HEAD, OPTIONS"/>
+                <set-header name="Access-Control-Allow-Headers" value="Content-Type, Authorization"/>
+            </forward>
+        </dispatch>
+
 else if (starts-with($exist:path, "/api")) then
     <dispatch xmlns="http://exist.sourceforge.net/NS/exist">
         <forward url="{$exist:controller}/modules/api.xq">

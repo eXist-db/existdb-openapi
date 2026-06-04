@@ -259,6 +259,106 @@ describe('/api/db', () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // Path-in-URL variant — raw bytes streaming via controller.xq forward
+  // to /exist/rest. Used for binary uploads/downloads (PDFs, images,
+  // fonts, zips, …) and any large text upload. The JSON envelope at
+  // /api/db/resource is unchanged and remains the metadata-bundled path
+  // for editors.
+  // Closes #35.
+  // ---------------------------------------------------------------------
+  describe('/api/db/resource/{path} — streaming via controller.xq forward to /exist/rest', () => {
+    // These tests exercise the path-in-URL endpoint that forwards to
+    // /exist/rest via controller.xq (so the request body streams through
+    // to broker.storeDocument without Roaster's body:parse buffering it
+    // first). Cypress's cy.request can't cleanly send raw binary bytes
+    // (the Buffer ↔ JSON serialization mangles them), so the binary
+    // round-trip is verified via curl in the PR description. The text-
+    // based tests below exercise the same forward routing — the only
+    // type-specific concern (mime auto-detection from the Content-Type
+    // header) is covered by the second test.
+
+    it('PUT text via path-in-URL stores at the URL path', () => {
+      cy.request({
+        url: `/api/db/resource${testCollection}/streamed.txt`,
+        method: 'PUT',
+        auth,
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'hello from the streaming endpoint'
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/streamed.txt`,
+        auth
+      }).then(response => {
+        // /exist/rest honors the Content-Type header on PUT
+        expect(response.body['mime-type']).to.equal('text/plain');
+        expect(response.body.type).to.equal('resource');
+      });
+    });
+
+    it('PUT with application/xquery Content-Type stores as XQuery (no XML parse)', () => {
+      cy.request({
+        url: `/api/db/resource${testCollection}/streamed.xq`,
+        method: 'PUT',
+        auth,
+        headers: { 'Content-Type': 'application/xquery' },
+        body: 'xquery version "3.1"; declare namespace t = "http://t"; 1+1'
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/streamed.xq`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/xquery');
+      });
+    });
+
+    it('GET on the path-in-URL endpoint returns raw bytes with the stored Content-Type', () => {
+      cy.request({
+        url: `/api/db/resource${testCollection}/streamed.txt`,
+        auth
+      }).then(response => {
+        expect(response.status).to.equal(200);
+        expect(response.headers['content-type']).to.match(/^text\/plain/);
+        expect(response.body).to.equal('hello from the streaming endpoint');
+      });
+    });
+
+    it('DELETE via path-in-URL removes the resource', () => {
+      cy.request({
+        url: `/api/db/resource${testCollection}/streamed.txt`,
+        method: 'DELETE',
+        auth
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 204]);
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/streamed.txt`,
+        auth,
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+      });
+    });
+
+    it('JSON-envelope endpoint (path-in-body) still works for text — sibling, not replacement', () => {
+      // Sanity check that the path-in-URL forward doesn't shadow the
+      // bare /api/db/resource endpoint that takes the JSON envelope.
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/json-sibling.xml`, content: '<x/>', 'mime-type': 'application/xml' }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+        expect(response.body).to.have.property('stored');
+      });
+    });
+  });
+
   describe('GET /api/db/resource — read', () => {
     it('reads back the stored resource', () => {
       cy.request({
