@@ -1621,9 +1621,9 @@
     },
     "/api/db/move": {
       "post": {
-        "summary": "Move resource or collection",
+        "summary": "Move or rename resource or collection",
         "operationId": "db:move",
-        "description": "Moves a resource or collection to a new location within the database. The target collection must exist.",
+        "description": "Moves or renames a resource or collection. The destination is given as an explicit `(parent, name)` pair — matching eXist's XML-RPC `moveResource` / `moveCollection` signature. Either `parent` or `newName` is required: `{source, parent}` moves into `parent` preserving source's leaf name; `{source, parent, name}` moves and renames; `{source, newName}` is a friendlier shortcut for in-place rename (equivalent to `parent = source's parent` + `name = newName`). `parent`, if supplied, must already exist as a collection.",
         "tags": [
           "Database"
         ],
@@ -1634,17 +1634,24 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "source",
-                  "target"
+                  "source"
                 ],
                 "properties": {
                   "source": {
                     "type": "string",
                     "description": "DB path of the resource/collection to move"
                   },
-                  "target": {
+                  "parent": {
                     "type": "string",
-                    "description": "Target collection path"
+                    "description": "Destination parent collection (must exist). Required unless `newName` is supplied."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Leaf name at the destination. Defaults to source's leaf when omitted."
+                  },
+                  "newName": {
+                    "type": "string",
+                    "description": "Shortcut for in-place rename. Equivalent to passing `parent = source's parent` and `name = newName`."
                   }
                 }
               }
@@ -1665,12 +1672,12 @@
                     },
                     "to": {
                       "type": "string",
-                      "description": "Target collection path"
+                      "description": "Full path of the moved item at its new location"
                     }
                   },
                   "example": {
                     "moved": "/db/test/a.xml",
-                    "to": "/db/test2"
+                    "to": "/db/test2/a.xml"
                   }
                 }
               }
@@ -1703,7 +1710,7 @@
       "post": {
         "summary": "Copy resource or collection",
         "operationId": "db:copy",
-        "description": "Copies a resource or collection to a new location within the database. The target collection must exist.",
+        "description": "Copies a resource or collection. The destination is given as an explicit `(parent, name)` pair — matching eXist's XML-RPC `copyResource` / `copyCollection` signature. Either `parent` or `newName` is required: `{source, parent}` copies into `parent` preserving source's leaf name; `{source, parent, name}` copies and renames; `{source, newName}` is a friendlier shortcut for duplicating within source's own collection (equivalent to `parent = source's parent` + `name = newName`). `parent`, if supplied, must already exist as a collection.",
         "tags": [
           "Database"
         ],
@@ -1714,17 +1721,24 @@
               "schema": {
                 "type": "object",
                 "required": [
-                  "source",
-                  "target"
+                  "source"
                 ],
                 "properties": {
                   "source": {
                     "type": "string",
                     "description": "DB path of the resource/collection to copy"
                   },
-                  "target": {
+                  "parent": {
                     "type": "string",
-                    "description": "Target collection path"
+                    "description": "Destination parent collection (must exist). Required unless `newName` is supplied."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Leaf name for the copy. Defaults to source's leaf when omitted."
+                  },
+                  "newName": {
+                    "type": "string",
+                    "description": "Shortcut for duplicating within source's own collection under this leaf name. Equivalent to passing `parent = source's parent` and `name = newName`."
                   }
                 }
               }
@@ -1745,12 +1759,12 @@
                     },
                     "to": {
                       "type": "string",
-                      "description": "Target collection path"
+                      "description": "Full path of the copy at its new location"
                     }
                   },
                   "example": {
                     "copied": "/db/test/a.xml",
-                    "to": "/db/test2"
+                    "to": "/db/test2/a.xml"
                   }
                 }
               }
