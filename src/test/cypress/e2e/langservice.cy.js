@@ -216,14 +216,22 @@ describe('/api/langservice', () => {
   });
 
   describe('POST /api/langservice/hover', () => {
-    it('returns signature and documentation at a position', () => {
+    it('returns LSP-shaped Hover with Markdown contents', () => {
       cy.request({
         url: '/api/langservice/hover', method: 'POST', auth,
         body: { expression: 'count((1, 2))', line: 0, column: 0 }
       }).then(response => {
         expect(response.status).to.eq(200);
-        expect(response.body).to.have.property('kind', 'function');
-        expect(response.body.contents).to.contain('count');
+        expect(response.body).to.have.property('contents');
+        expect(response.body.contents).to.have.property('kind', 'markdown');
+        expect(response.body.contents).to.have.property('value');
+        // Fenced XQuery code block for the signature
+        expect(response.body.contents.value).to.contain('```xquery');
+        expect(response.body.contents.value).to.contain('count(');
+        // Parameters section
+        expect(response.body.contents.value).to.contain('**Parameters**');
+        // Returns section
+        expect(response.body.contents.value).to.contain('**Returns:**');
       });
     });
 
@@ -233,6 +241,48 @@ describe('/api/langservice', () => {
         body: { expression: 'true()', line: 0, column: 0 }
       }).then(response => {
         expect(response.status).to.eq(200);
+      });
+    });
+  });
+
+  describe('POST /api/langservice/signature-help', () => {
+    it('returns LSP-shaped SignatureHelp when cursor is inside a function call', () => {
+      cy.request({
+        url: '/api/langservice/signature-help', method: 'POST', auth,
+        body: { expression: 'substring("abc", 2, 1)', line: 0, column: 17 }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.have.property('signatures').that.is.an('array').with.length.greaterThan(0);
+        expect(response.body).to.have.property('activeSignature');
+        expect(response.body).to.have.property('activeParameter');
+        const sig = response.body.signatures[0];
+        expect(sig.label).to.contain('substring');
+        expect(sig.documentation).to.have.property('kind', 'markdown');
+        expect(sig.parameters).to.be.an('array').with.length(3);
+        sig.parameters.forEach(p => {
+          expect(p.label).to.match(/^\$/);
+          expect(p.documentation).to.have.property('kind', 'markdown');
+        });
+      });
+    });
+
+    it('activeParameter advances with commas (top-level)', () => {
+      // Cursor at col 17 — past the 2nd comma, so 3rd parameter (index 1 of 0-indexed → 1)
+      cy.request({
+        url: '/api/langservice/signature-help', method: 'POST', auth,
+        body: { expression: 'substring("abc", 2, 1)', line: 0, column: 17 }
+      }).then(response => {
+        expect(response.body.activeParameter).to.eq(1);
+      });
+    });
+
+    it('returns null when cursor is not inside a function call', () => {
+      cy.request({
+        url: '/api/langservice/signature-help', method: 'POST', auth,
+        body: { expression: '1 + 2', line: 0, column: 3 }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.be.null;
       });
     });
   });

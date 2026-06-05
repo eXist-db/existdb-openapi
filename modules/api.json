@@ -870,24 +870,152 @@
         },
         "responses": {
           "200": {
-            "description": "Hover information with signature and documentation",
+            "description": "LSP-shaped Hover: a map with one key, `contents`, whose value is a MarkupContent ({kind, value}) carrying Markdown-formatted documentation. Returns `null` (HTTP 200) if no symbol is found at the position.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "contents": {
-                      "type": "string",
-                      "description": "Signature and documentation text"
-                    },
-                    "kind": {
-                      "type": "string",
-                      "description": "Symbol kind (function, variable, etc.)"
+                      "type": "object",
+                      "description": "LSP MarkupContent — see the `MarkupContent` schema component.",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": ["markdown", "plaintext"],
+                          "description": "Format of the `value` string."
+                        },
+                        "value": {
+                          "type": "string",
+                          "description": "The Markdown (or plaintext) body. For functions: a fenced XQuery code block with the signature, the description, a Parameters bullet list, and a Returns line."
+                        }
+                      }
                     }
                   },
                   "example": {
-                    "contents": "fn:count($arg as item()*) as xs:integer\n\nReturns the number of items",
-                    "kind": "function"
+                    "contents": {
+                      "kind": "markdown",
+                      "value": "```xquery\ncount($items as item()*) as xs:integer\n```\n\nReturns the number of items in the argument sequence.\n\n**Parameters**\n\n- `$items` (`item()*`) — The items\n\n**Returns:** `xs:integer`"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/langservice/signature-help": {
+      "post": {
+        "summary": "Parameter help inside a function call",
+        "operationId": "langservice:signature-help",
+        "description": "Returns LSP-shaped SignatureHelp for the function call surrounding the cursor: the call's signature, each parameter's label and per-parameter Markdown docs, plus an `activeParameter` index computed by counting commas at the call's paren depth. Returns `null` if the cursor is not inside a function-call argument list.",
+        "tags": [
+          "Language Service"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "expression",
+                  "line",
+                  "column"
+                ],
+                "properties": {
+                  "expression": {
+                    "type": "string",
+                    "description": "Full XQuery expression"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "description": "0-based line number"
+                  },
+                  "column": {
+                    "type": "integer",
+                    "description": "0-based column number"
+                  },
+                  "module-load-path": {
+                    "type": "string",
+                    "description": "Module load path for resolving imports"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "LSP-shaped SignatureHelp, or `null` (HTTP 200) if the cursor is not inside a function call.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "signatures": {
+                      "type": "array",
+                      "description": "One entry per overload (currently always one).",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "description": "One-line function signature."
+                          },
+                          "documentation": {
+                            "type": "object",
+                            "description": "Markdown description.",
+                            "properties": {
+                              "kind": { "type": "string", "enum": ["markdown", "plaintext"] },
+                              "value": { "type": "string" }
+                            }
+                          },
+                          "parameters": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string",
+                                  "description": "Parameter label, designed to substring-match the signature label (e.g. `$arg as item()*`)."
+                                },
+                                "documentation": {
+                                  "type": "object",
+                                  "properties": {
+                                    "kind": { "type": "string", "enum": ["markdown", "plaintext"] },
+                                    "value": { "type": "string" }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "activeSignature": {
+                      "type": "integer",
+                      "description": "Index into `signatures` (0-based)."
+                    },
+                    "activeParameter": {
+                      "type": "integer",
+                      "description": "0-based index of the parameter the cursor is on, computed by counting top-level commas between the opening paren and the cursor."
+                    }
+                  },
+                  "example": {
+                    "signatures": [
+                      {
+                        "label": "substring($sourceString as xs:string?, $start as xs:double) as xs:string",
+                        "documentation": { "kind": "markdown", "value": "Returns the contiguous sequence of characters …" },
+                        "parameters": [
+                          { "label": "$sourceString as xs:string?", "documentation": { "kind": "markdown", "value": "`$sourceString as xs:string?`\n\nThe source string" } },
+                          { "label": "$start as xs:double", "documentation": { "kind": "markdown", "value": "`$start as xs:double`\n\nThe starting position" } }
+                        ]
+                      }
+                    ],
+                    "activeSignature": 0,
+                    "activeParameter": 1
                   }
                 }
               }

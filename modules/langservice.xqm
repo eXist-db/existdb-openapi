@@ -68,6 +68,24 @@ declare function langservice:hover($request as map(*)) {
 };
 
 (:~
+ : Per-parameter help for the function call surrounding the cursor.
+ : POST /api/langservice/signature-help
+ :)
+declare function langservice:signature-help($request as map(*)) {
+    let $body := $request?body
+    let $expression := $body?expression
+    let $line := xs:integer($body?line)
+    let $column := xs:integer($body?column)
+    let $module-load-path := $body?module-load-path
+    return
+        if (empty($expression) or empty($line) or empty($column))
+        then map { "error": "Missing required fields: expression, line, column" }
+        else if ($module-load-path)
+        then lang:signature-help($expression, $line, $column, $module-load-path)
+        else lang:signature-help($expression, $line, $column)
+};
+
+(:~
  : Go to definition.
  : POST /api/langservice/definition
  :)
