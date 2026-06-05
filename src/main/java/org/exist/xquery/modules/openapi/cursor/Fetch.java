@@ -20,8 +20,6 @@ import org.exist.xquery.value.Sequence;
 import org.exist.xquery.value.StringValue;
 import org.exist.xquery.value.Type;
 
-import org.w3c.dom.Node;
-
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
@@ -144,18 +142,19 @@ public class Fetch extends BasicFunction {
             map.add(new StringValue(this, "type"),
                     new StringValue(this, Type.getTypeName(item.getType())));
 
-            // Document URI and node ID (only for persistent database nodes)
+            // Document URI and node ID — only persistent database nodes carry
+            // both. NodeProxy does NOT implement org.w3c.dom.Node, so an outer
+            // `instanceof Node` check would always be false here; check the
+            // NodeProxy type directly.
             String documentURI = "";
             String nodeId = "";
-            if (item instanceof Node) {
+            if (item instanceof NodeProxy proxy) {
                 try {
-                    if (item instanceof NodeProxy proxy) {
-                        final String docUri = proxy.getOwnerDocument().getDocumentURI();
-                        if (docUri != null) {
-                            documentURI = docUri;
-                        }
-                        nodeId = proxy.getNodeId().toString();
+                    final String docUri = proxy.getOwnerDocument().getDocumentURI();
+                    if (docUri != null) {
+                        documentURI = docUri;
                     }
+                    nodeId = proxy.getNodeId().toString();
                 } catch (final Exception e) {
                     logger.debug("Could not extract document info for item {}: {}", i, e.getMessage());
                 }
