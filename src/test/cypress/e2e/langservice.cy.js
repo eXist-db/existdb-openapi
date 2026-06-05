@@ -140,25 +140,28 @@ describe('/api/langservice', () => {
         });
       });
 
-      it('bare-mode fn:* drops the prefix from insertText', () => {
+      it('bare-mode fn:* drops the prefix from insertText (snippet form)', () => {
         cy.request({
           url: '/api/langservice/completions', method: 'POST', auth,
           body: { expression: 'cou' }
         }).then(response => {
           const fnCount = findItem(response.body, 'fn:count#1');
           expect(fnCount.label).to.eq('fn:count#1');
-          expect(fnCount.insertText).to.eq('count()');
+          // fn:count has one parameter $items, so insertText is a snippet with one tab stop
+          expect(fnCount.insertText).to.eq('count(${1:\\$items})');
+          expect(fnCount.insertTextFormat).to.eq(2);
           expect(fnCount.filterText).to.eq('count');
         });
       });
 
-      it('prefixed-mode fn:* keeps the prefix the user typed', () => {
+      it('prefixed-mode fn:* keeps the prefix the user typed (snippet form)', () => {
         cy.request({
           url: '/api/langservice/completions', method: 'POST', auth,
           body: { expression: 'fn:cou' }
         }).then(response => {
           const fnCount = findItem(response.body, 'fn:count#1');
-          expect(fnCount.insertText).to.eq('fn:count()');
+          expect(fnCount.insertText).to.eq('fn:count(${1:\\$items})');
+          expect(fnCount.insertTextFormat).to.eq(2);
         });
       });
 
@@ -169,7 +172,21 @@ describe('/api/langservice', () => {
         }).then(response => {
           const utilLog = findItem(response.body, 'util:log#2');
           expect(utilLog).to.exist;
-          expect(utilLog.insertText).to.match(/^util:log/);
+          expect(utilLog.insertText).to.match(/^util:log\(\$\{1:/);
+          expect(utilLog.insertText).to.match(/\$\{2:/);
+          expect(utilLog.insertTextFormat).to.eq(2);
+        });
+      });
+
+      it('zero-arity functions stay plain (no snippet placeholders)', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fn:tr' }
+        }).then(response => {
+          const fnTrue = findItem(response.body, 'fn:true#0');
+          expect(fnTrue).to.exist;
+          expect(fnTrue.insertText).to.eq('fn:true()');
+          expect(fnTrue.insertTextFormat).to.eq(1);
         });
       });
 
