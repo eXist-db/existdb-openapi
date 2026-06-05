@@ -30,6 +30,7 @@ import org.exist.xquery.functions.map.MapType;
 import org.exist.xquery.parser.XQueryLexer;
 import org.exist.xquery.parser.XQueryParser;
 import org.exist.xquery.parser.XQueryTreeParser;
+import org.exist.xquery.value.FunctionParameterSequenceType;
 import org.exist.xquery.value.IntegerValue;
 import org.exist.xquery.value.Sequence;
 import org.exist.xquery.value.SequenceType;
@@ -322,14 +323,12 @@ public class Completions extends BasicFunction {
         // `fn:count(...)`. Other namespaces always need their prefix to
         // resolve, so leave those alone.
         final boolean dropFnPrefix = !cursor.isPrefixed() && "fn".equals(prefix);
-        final String insertText = dropFnPrefix
-                ? formatInsertText("", name.getLocalPart())
-                : formatInsertText(prefix, name.getLocalPart());
+        final String insertText = formatInsertText(dropFnPrefix ? "" : prefix, sig);
         final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
         final String filterText = name.getLocalPart();
         final String sortText = sortBucket(prefix) + "_" + name.getLocalPart() + "#" + sig.getArgumentCount();
         addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), documentation,
-                insertText, filterText, sortText, INSERT_TEXT_FORMAT_PLAIN);
+                insertText, filterText, sortText, insertFormatFor(sig));
     }
 
     private static boolean startsWithIgnoreCase(final String s, final String prefix) {
@@ -421,12 +420,12 @@ public class Completions extends BasicFunction {
             return;
         }
         final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
-        final String insertText = formatInsertText(prefix, name.getLocalPart());
+        final String insertText = formatInsertText(prefix, sig);
         // User-defined functions rank in the top bucket alongside fn:/keywords
         // — they're the symbols most relevant to the user's own code.
         final String sortText = "0_" + name.getLocalPart() + "#" + sig.getArgumentCount();
         addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), "",
-                insertText, name.getLocalPart(), sortText, INSERT_TEXT_FORMAT_PLAIN);
+                insertText, name.getLocalPart(), sortText, insertFormatFor(sig));
     }
 
     private void addVariable(final List<Sequence> completions, final VariableDeclaration varDecl)
@@ -474,14 +473,49 @@ public class Completions extends BasicFunction {
         return localPart + "#" + arity;
     }
 
-    private static String formatInsertText(final String prefix, final String localPart) {
+    /**
+     * Builds an LSP insertText for a function call. For arity ≥ 1 the body is
+     * an LSP snippet (insertTextFormat=2) with one tab stop per parameter,
+     * defaulting to the parameter's declared name — e.g. {@code count} becomes
+     * {@code count(${1:\$items})}. The {@code \$} escapes the dollar so the
+     * placeholder default renders as literal {@code $items}, matching the
+     * XQuery variable reference the user is filling in.
+     *
+     * <p>For arity 0 the body is just {@code name()} (no placeholders); the
+     * caller uses {@link #insertFormatFor} to pick the matching format.</p>
+     */
+    private static String formatInsertText(final String prefix, final FunctionSignature sig) {
         final StringBuilder sb = new StringBuilder();
         if (prefix != null && !prefix.isEmpty()) {
             sb.append(prefix).append(':');
         }
-        sb.append(localPart).append('(');
+        sb.append(sig.getName().getLocalPart()).append('(');
+        final SequenceType[] argTypes = sig.getArgumentTypes();
+        if (argTypes != null && argTypes.length > 0) {
+            for (int i = 0; i < argTypes.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append("${").append(i + 1).append(":\\$")
+                        .append(placeholderName(argTypes[i], i)).append('}');
+            }
+        }
         sb.append(')');
         return sb.toString();
+    }
+
+    private static String placeholderName(final SequenceType argType, final int index) {
+        if (argType instanceof final FunctionParameterSequenceType p) {
+            final String name = p.getAttributeName();
+            if (name != null && !name.isEmpty()) {
+                return name;
+            }
+        }
+        return "arg" + (index + 1);
+    }
+
+    private static long insertFormatFor(final FunctionSignature sig) {
+        return sig.getArgumentCount() > 0 ? INSERT_TEXT_FORMAT_SNIPPET : INSERT_TEXT_FORMAT_PLAIN;
     }
 
     private static String formatQName(final QName name) {
