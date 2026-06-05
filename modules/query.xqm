@@ -54,16 +54,41 @@ declare function query:execute($request as map(*)) {
     let $body := $request?body
     let $expression := $body?query
     let $module-load-path := $body?module-load-path
+    let $context-item-xml := $body?context-item
+    let $context-path := $body?context-path
     return
         if (empty($expression) or $expression = "")
         then
             map { "error": "Missing required field: query" }
         else
-            let $result :=
-                if ($module-load-path)
-                then cursor:eval($expression, $module-load-path)
-                else cursor:eval($expression)
-            return $result
+            (: context-path (a DB path the editor has open) takes precedence
+             : over context-item (inline serialized XML). Either resolves to
+             : the node `expression` will see as `.` / the focus of
+             : unprefixed path expressions like `//foo`. :)
+            try {
+                let $context-item :=
+                    if (exists($context-path) and $context-path != "") then
+                        if (doc-available($context-path))
+                        then doc($context-path)
+                        else error(xs:QName("query:context-path-not-found"),
+                                   "context-path not found: " || $context-path)
+                    else if (exists($context-item-xml) and $context-item-xml != "") then
+                        parse-xml($context-item-xml)
+                    else
+                        ()
+                let $mlp := if ($module-load-path) then $module-load-path else ()
+                return
+                    if (exists($context-item)) then
+                        cursor:eval($expression, $mlp, $context-item)
+                    else if (exists($mlp)) then
+                        cursor:eval($expression, $mlp)
+                    else
+                        cursor:eval($expression)
+            } catch query:context-path-not-found {
+                map { "error": $err:description }
+            } catch * {
+                map { "error": "Invalid context-item: " || $err:description }
+            }
 };
 
 (:~

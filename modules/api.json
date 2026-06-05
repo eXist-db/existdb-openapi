@@ -361,6 +361,14 @@
                   "module-load-path": {
                     "type": "string",
                     "description": "Module load path for resolving imports"
+                  },
+                  "context-item": {
+                    "type": "string",
+                    "description": "Serialized XML to use as the context item — the node `expression` will see as `.` / the focus of unprefixed path expressions like `//foo`. Use when the editor has unsaved buffer content not yet stored in the database. Ignored when `context-path` is also supplied."
+                  },
+                  "context-path": {
+                    "type": "string",
+                    "description": "DB path (e.g. `/db/apps/foo/data.xml`) to a document to use as the context item. Convenience shortcut over `context-item` when the editor's current document is already in the database. Takes precedence over `context-item`."
                   }
                 }
               }
