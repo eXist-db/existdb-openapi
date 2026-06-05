@@ -249,4 +249,70 @@ describe('/api/query', () => {
       });
     });
   });
+
+  describe('documentURI / nodeId in results (issue #40)', () => {
+    const testDoc = '/db/cypress-test-uri.xml';
+
+    before(() => {
+      cy.request({
+        url: '/api/db/resource', method: 'PUT', auth,
+        body: {
+          path: testDoc,
+          content: '<doc><para>one</para><para>two</para></doc>',
+          'mime-type': 'application/xml'
+        }
+      });
+    });
+
+    after(() => {
+      cy.request({
+        url: `/api/db/resource?path=${testDoc}`,
+        method: 'DELETE', auth, failOnStatusCode: false
+      });
+    });
+
+    function runAndFetch(query, then) {
+      cy.request({
+        url: '/api/query', method: 'POST', auth, body: { query }
+      }).then(postResponse => {
+        const cursor = postResponse.body.cursor;
+        cy.request({
+          url: `/api/query/${cursor}/results?start=1&count=10`, auth
+        }).then(fetchResponse => {
+          then(fetchResponse.body);
+          cy.request({ url: `/api/query/${cursor}`, method: 'DELETE', auth });
+        });
+      });
+    }
+
+    it('populates documentURI and nodeId for stored-doc nodes', () => {
+      runAndFetch(`doc("${testDoc}")//para`, items => {
+        expect(items).to.have.length(2);
+        items.forEach(it => {
+          expect(it.documentURI).to.eq(testDoc);
+          expect(it.nodeId).to.not.eq('');
+          expect(it.nodeId).to.match(/^\d/);
+        });
+        // The two paras must have distinct node IDs
+        expect(items[0].nodeId).to.not.eq(items[1].nodeId);
+      });
+    });
+
+    it('leaves documentURI and nodeId empty for atomic results', () => {
+      runAndFetch('1 to 3', items => {
+        items.forEach(it => {
+          expect(it.documentURI).to.eq('');
+          expect(it.nodeId).to.eq('');
+        });
+      });
+    });
+
+    it('leaves documentURI and nodeId empty for in-memory nodes', () => {
+      runAndFetch('<root><x/></root>/x', items => {
+        expect(items).to.have.length(1);
+        expect(items[0].documentURI).to.eq('');
+        expect(items[0].nodeId).to.eq('');
+      });
+    });
+  });
 });
