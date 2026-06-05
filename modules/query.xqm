@@ -54,8 +54,8 @@ declare function query:execute($request as map(*)) {
     let $body := $request?body
     let $expression := $body?query
     let $module-load-path := $body?module-load-path
-    let $context-item-xml := $body?("context-item")
-    let $context-path := $body?("context-path")
+    let $context-item-xml := $body?context-item
+    let $context-path := $body?context-path
     return
         if (empty($expression) or $expression = "")
         then
