@@ -67,9 +67,28 @@ public class Completions extends BasicFunction {
     private static final long COMPLETION_KIND_FUNCTION = 3;
     private static final long COMPLETION_KIND_VARIABLE = 6;
     private static final long COMPLETION_KIND_KEYWORD = 14;
+    private static final long COMPLETION_KIND_SNIPPET = 15;
 
     /** LSP InsertTextFormat: 1 = PlainText, 2 = Snippet. */
     private static final long INSERT_TEXT_FORMAT_PLAIN = 1;
+    private static final long INSERT_TEXT_FORMAT_SNIPPET = 2;
+
+    private static final Snippet[] SNIPPETS = {
+            new Snippet("for", "for … in … return …",
+                    "for \\$${1:x} in ${2:expr}\nreturn \\$$1"),
+            new Snippet("let", "let … := …",
+                    "let \\$${1:x} := ${2:expr}\nreturn \\$$1"),
+            new Snippet("if", "if (…) then … else …",
+                    "if (${1:condition}) then ${2:then} else ${3:else}"),
+            new Snippet("try", "try { … } catch * { … }",
+                    "try {\n    ${1}\n} catch * {\n    ${2:\\$err:description}\n}"),
+            new Snippet("typeswitch", "typeswitch (…) case … default return …",
+                    "typeswitch (${1:expr})\n    case ${2:xs:string} return ${3}\n    default return ${4}"),
+            new Snippet("function", "declare function …(…) { … }",
+                    "declare function ${1:local}:${2:name}(${3}) {\n    ${4}\n};"),
+            new Snippet("import", "import module namespace …",
+                    "import module namespace ${1:p} = \"${2:uri}\";")
+    };
 
     /**
      * sortText prefix bucket per namespace. Bias toward the XQuery defaults so
@@ -150,6 +169,14 @@ public class Completions extends BasicFunction {
         }
     }
 
+    /**
+     * Snippet templates expanded by clients that honor
+     * {@code insertTextFormat: 2}. Placeholders use {@code ${N:default}};
+     * {@code \$} escapes a literal dollar (so the XQuery variable {@code $x}
+     * is written {@code \$x} in the snippet body).
+     */
+    private record Snippet(String trigger, String label, String body) { }
+
     @Override
     public Sequence eval(final Sequence[] args, final Sequence contextSequence) throws XPathException {
         final String expr = args[0].getStringValue();
@@ -165,10 +192,11 @@ public class Completions extends BasicFunction {
             // Built-in module functions are always available
             addBuiltinFunctions(pContext, completions, cursor);
 
-            // Keywords — never offered when the cursor is scoped to a prefix,
-            // since `util:return`/`util:let` can't exist.
+            // Keywords and snippets — never offered when the cursor is scoped
+            // to a prefix, since `util:return`/`util:for` can't exist.
             if (!cursor.isPrefixed()) {
                 addKeywords(completions);
+                addSnippets(completions);
             }
 
             // Try to compile to discover user-declared symbols
@@ -318,6 +346,20 @@ public class Completions extends BasicFunction {
             // common things users type without a prefix.
             addCompletion(completions, keyword, COMPLETION_KIND_KEYWORD, "keyword", "",
                     keyword, keyword, "0_" + keyword, INSERT_TEXT_FORMAT_PLAIN);
+        }
+    }
+
+    /**
+     * Adds snippet completions (FLWOR, try/catch, typeswitch, declarations,
+     * imports). Clients that honor {@code insertTextFormat: 2} expand the
+     * tab-stop placeholders; clients that don't fall back to plain-text
+     * insertion per the LSP spec.
+     */
+    private void addSnippets(final List<Sequence> completions) throws XPathException {
+        for (final Snippet s : SNIPPETS) {
+            addCompletion(completions, s.trigger(), COMPLETION_KIND_SNIPPET, s.label(),
+                    "XQuery snippet", s.body(), s.trigger(), "0_" + s.trigger(),
+                    INSERT_TEXT_FORMAT_SNIPPET);
         }
     }
 

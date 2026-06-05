@@ -173,6 +173,31 @@ describe('/api/langservice', () => {
         });
       });
 
+      it('emits snippet items (FLWOR, try/catch, etc.) in bare mode', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fo' }
+        }).then(response => {
+          const snippets = response.body.filter(i => i.kind === 15);
+          expect(snippets.length).to.be.greaterThan(0);
+          const forSnip = snippets.find(s => s.label === 'for');
+          expect(forSnip).to.exist;
+          expect(forSnip.insertTextFormat).to.eq(2);
+          expect(forSnip.insertText).to.contain('${1:x}');
+          expect(forSnip.insertText).to.contain('${2:expr}');
+        });
+      });
+
+      it('suppresses snippets when the cursor is prefixed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          const snippets = response.body.filter(i => i.kind === 15);
+          expect(snippets).to.have.length(0);
+        });
+      });
+
       it('sortText biases fn:* / keywords / user fns into bucket 0', () => {
         cy.request({
           url: '/api/langservice/completions', method: 'POST', auth,
