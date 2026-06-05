@@ -315,4 +315,110 @@ describe('/api/query', () => {
       });
     });
   });
+
+  describe('context-item / context-path', () => {
+    const testDoc = '/db/cypress-test-query-ctx.xml';
+
+    before(() => {
+      cy.request({
+        url: `/api/db/resource`,
+        method: 'PUT',
+        auth,
+        body: {
+          path: testDoc,
+          content: '<doc><para>one</para><para>two</para><para>three</para></doc>',
+          'mime-type': 'application/xml'
+        }
+      });
+    });
+
+    after(() => {
+      cy.request({
+        url: `/api/db/resource?path=${testDoc}`,
+        method: 'DELETE',
+        auth,
+        failOnStatusCode: false
+      });
+    });
+
+    function fetchOne(cursor) {
+      return cy.request({ url: `/api/query/${cursor}/results?start=1&count=10`, auth });
+    }
+
+    it('evaluates //x against inline context-item XML', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: {
+          query: 'count(//item)',
+          'context-item': '<root><item/><item/><item/></root>'
+        }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.have.property('cursor');
+        fetchOne(response.body.cursor).then(r => {
+          expect(r.body[0].value).to.eq('3');
+        });
+      });
+    });
+
+    it('evaluates //x against a db document via context-path', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: {
+          query: 'count(//para)',
+          'context-path': testDoc
+        }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        fetchOne(response.body.cursor).then(r => {
+          expect(r.body[0].value).to.eq('3');
+        });
+      });
+    });
+
+    it('context-path takes precedence over context-item', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: {
+          query: 'count(//para)',
+          'context-path': testDoc,
+          'context-item': '<other><para/></other>'
+        }
+      }).then(response => {
+        fetchOne(response.body.cursor).then(r => {
+          expect(r.body[0].value).to.eq('3');
+        });
+      });
+    });
+
+    it('returns error for malformed context-item XML', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: { query: '.', 'context-item': '<not-well-formed' }
+      }).then(response => {
+        expect(response.body).to.have.property('error');
+        expect(response.body.error).to.include('context-item');
+      });
+    });
+
+    it('returns error for nonexistent context-path', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: { query: '.', 'context-path': '/db/nonexistent-xyz.xml' }
+      }).then(response => {
+        expect(response.body).to.have.property('error');
+        expect(response.body.error).to.include('not found');
+      });
+    });
+  });
 });

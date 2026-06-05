@@ -68,6 +68,20 @@ public class Eval extends BasicFunction {
                                     The module load path. \
                                     Imports will be resolved relative to this. \
                                     Use xmldb:exist:///db or /db for database-stored modules.""")
+                    ),
+                    arity(
+                            param("expression", Type.STRING, "The XQuery expression to evaluate."),
+                            optParam("module-load-path", Type.STRING, """
+                                    The module load path. \
+                                    Imports will be resolved relative to this. \
+                                    Use xmldb:exist:///db or /db for database-stored modules."""),
+                            optParam("context-item", Type.ITEM, """
+                                    The context item against which the expression will \
+                                    be evaluated. Use this when running a context-dependent \
+                                    expression (e.g. `//foo`, `.`, `count(//x)`) against a \
+                                    specific document — typically the document an editor \
+                                    client currently has open. When absent, the expression \
+                                    sees no context item.""")
                     )
             )
     );
@@ -79,13 +93,14 @@ public class Eval extends BasicFunction {
     @Override
     public Sequence eval(final Sequence[] args, final Sequence contextSequence) throws XPathException {
         final String expr = args[0].getStringValue();
-
-        final String moduleLoadPath;
-        if (getArgumentCount() == 2 && args[1].hasOne()) {
-            moduleLoadPath = args[1].getStringValue();
-        } else {
-            moduleLoadPath = null;
-        }
+        final String moduleLoadPath = optionalString(args, 1);
+        // Optional context item — the node/value `expr` will see as `.` /
+        // the focus of unprefixed path expressions. Without it, context-
+        // dependent expressions like `//foo` evaluate against the empty
+        // sequence and return nothing. Editor integrations supply the
+        // currently-open document here so users can run queries against
+        // their working content.
+        final Sequence contextItem = optionalSequence(args, 2);
 
         // Borrow a compiled query for this expression from the shared
         // XQueryPool if one is available; otherwise compile fresh. Same
@@ -145,7 +160,7 @@ public class Eval extends BasicFunction {
                 }
 
                 final long evalStart = System.currentTimeMillis();
-                final Sequence result = xqueryService.execute(context.getBroker(), compiled, null);
+                final Sequence result = xqueryService.execute(context.getBroker(), compiled, contextItem);
                 final long evalTime = System.currentTimeMillis() - evalStart;
 
                 final int itemCount = result.getItemCount();
@@ -208,6 +223,20 @@ public class Eval extends BasicFunction {
      * behaviour of {@code /exist/rest/db} (the REST root) — `//p` walks the
      * whole database rather than silently returning nothing.
      */
+    private String optionalString(final Sequence[] args, final int index) throws XPathException {
+        if (getArgumentCount() > index && args[index].hasOne()) {
+            return args[index].getStringValue();
+        }
+        return null;
+    }
+
+    private Sequence optionalSequence(final Sequence[] args, final int index) {
+        if (getArgumentCount() > index && !args[index].isEmpty()) {
+            return args[index];
+        }
+        return null;
+    }
+
     private static XmldbURI resolveScope(final String moduleLoadPath) {
         if (moduleLoadPath == null || moduleLoadPath.isEmpty() || ".".equals(moduleLoadPath)) {
             return XmldbURI.ROOT_COLLECTION_URI;
