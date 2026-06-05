@@ -243,6 +243,22 @@ describe('/api/langservice', () => {
         expect(response.status).to.eq(200);
       });
     });
+
+    it('renders empty-sequence() return type cleanly (no concat artifact)', () => {
+      // Cardinality.EMPTY_SEQUENCE.toXQueryCardinalityString() returns the
+      // literal "empty-sequence()", not a postfix marker. Naively concatenating
+      // it onto the primary type produced "item()empty-sequence()" /
+      // "empty-sequence()empty-sequence()". Regression for that.
+      cy.request({
+        url: '/api/langservice/hover', method: 'POST', auth,
+        body: { expression: 'util:log("info","x")', line: 0, column: 0 }
+      }).then(response => {
+        const value = response.body.contents.value;
+        expect(value).to.contain('**Returns:** `empty-sequence()`');
+        expect(value).to.not.match(/empty-sequence\(\)empty-sequence\(\)/);
+        expect(value).to.not.match(/item\(\)empty-sequence\(\)/);
+      });
+    });
   });
 
   describe('POST /api/langservice/signature-help', () => {

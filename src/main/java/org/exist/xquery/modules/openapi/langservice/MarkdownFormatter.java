@@ -4,6 +4,7 @@
  */
 package org.exist.xquery.modules.openapi.langservice;
 
+import org.exist.xquery.Cardinality;
 import org.exist.xquery.FunctionSignature;
 import org.exist.xquery.value.FunctionParameterSequenceType;
 import org.exist.xquery.value.FunctionReturnSequenceType;
@@ -89,12 +90,21 @@ final class MarkdownFormatter {
     /**
      * Type label including cardinality marker (?, *, +). Mirrors what {@code
      * FunctionSignature.toString()} produces for individual params.
+     *
+     * <p>Cardinality {@code EMPTY_SEQUENCE} is special: its
+     * {@code toXQueryCardinalityString()} returns the literal
+     * {@code "empty-sequence()"} (not a postfix marker), so naively
+     * concatenating it onto the primary type name produces nonsense like
+     * {@code "item()empty-sequence()"}. In that case we use the cardinality
+     * string standalone.</p>
      */
     static String formatType(final SequenceType type) {
+        final Cardinality card = type.getCardinality();
+        if (card == Cardinality.EMPTY_SEQUENCE) {
+            return "empty-sequence()";
+        }
         final String name = Type.getTypeName(type.getPrimaryType());
-        final String card = type.getCardinality() != null
-                ? type.getCardinality().toXQueryCardinalityString() : "";
-        return name + card;
+        return name + (card != null ? card.toXQueryCardinalityString() : "");
     }
 
     /**
