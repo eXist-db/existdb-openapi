@@ -445,6 +445,150 @@ describe('/api/db', () => {
         expect(response.body.error).to.match(/does not exist/i);
       });
     });
+
+    // Closes #37 — was the original silent-data-loss case.
+    it('refuses to overwrite an existing destination on move (409 Conflict, source preserved)', () => {
+      // Set up: a source resource and a different file at the proposed destination
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/src-overwrite.xml`, content: '<src/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/dest-blocking.xml`, content: '<dest>existing</dest>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/src-overwrite.xml`, parent: testCollection, name: 'dest-blocking.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      // Source must still be there.
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/src-overwrite.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<src/>');
+      });
+      // Destination must be unchanged (NOT overwritten with source).
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/dest-blocking.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<dest>existing</dest>');
+      });
+    });
+
+    it('refuses to overwrite an existing destination collection on move (409 Conflict)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-src-overwrite` }
+      });
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-dest-blocking` }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/coll-src-overwrite`, parent: testCollection, name: 'coll-dest-blocking' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      // Both collections still there.
+      cy.request({
+        url: `/api/db?path=${testCollection}/coll-src-overwrite`,
+        auth
+      }).then(response => {
+        expect(response.body.type).to.equal('collection');
+      });
+      cy.request({
+        url: `/api/db?path=${testCollection}/coll-dest-blocking`,
+        auth
+      }).then(response => {
+        expect(response.body.type).to.equal('collection');
+      });
+    });
+
+    it('rejects move when source does not exist (404)', () => {
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/no-such-source.xml`, parent: testCollection, name: 'irrelevant.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+        expect(response.body.error).to.match(/not found/i);
+      });
+    });
+  });
+
+  describe('POST /api/db/copy — safety', () => {
+    it('refuses to overwrite an existing destination on copy (409 Conflict, both preserved)', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/copy-src.xml`, content: '<src/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/copy-dest-blocking.xml`, content: '<dest/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/copy-src.xml`, parent: testCollection, name: 'copy-dest-blocking.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/copy-src.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<src/>');
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/copy-dest-blocking.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<dest/>');
+      });
+    });
+
+    it('rejects copy when source does not exist (404)', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/no-such-source.xml`, parent: testCollection, name: 'x.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+        expect(response.body.error).to.match(/not found/i);
+      });
+    });
   });
 
   describe('DELETE /api/db/resource', () => {

@@ -1694,7 +1694,27 @@
             }
           },
           "404": {
-            "description": "Source or target not found",
+            "description": "Source not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Destination already exists (refuse-to-overwrite)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Move failed mid-operation",
             "content": {
               "application/json": {
                 "schema": {
@@ -1781,7 +1801,27 @@
             }
           },
           "404": {
-            "description": "Source or target not found",
+            "description": "Source not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Destination already exists (refuse-to-overwrite)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Copy failed mid-operation",
             "content": {
               "application/json": {
                 "schema": {
