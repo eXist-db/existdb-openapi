@@ -244,6 +244,42 @@ describe('/api/langservice', () => {
       });
     });
 
+    describe('variable hover type info (issue: F1-like richness for variables)', () => {
+      it('shows the inferred type for let-bound variables', () => {
+        cy.request({
+          url: '/api/langservice/hover', method: 'POST', auth,
+          body: { expression: 'let $x := 1 return $x', line: 0, column: 20 }
+        }).then(response => {
+          expect(response.body.contents.value).to.contain('`$x`');
+          expect(response.body.contents.value).to.contain('xs:integer');
+        });
+      });
+
+      it('shows item type (not sequence) for for-bound variables', () => {
+        cy.request({
+          url: '/api/langservice/hover', method: 'POST', auth,
+          body: { expression: 'for $z in (1,2,3) return $z', line: 0, column: 26 }
+        }).then(response => {
+          // for-bindings iterate one-at-a-time → EXACTLY_ONE cardinality
+          expect(response.body.contents.value).to.contain('`$z`');
+          expect(response.body.contents.value).to.match(/as `\w+\(\)`\s*$|as `xs:/);
+        });
+      });
+
+      it('shows declared parameter type for user-function args', () => {
+        cy.request({
+          url: '/api/langservice/hover', method: 'POST', auth,
+          body: {
+            expression: 'declare function local:f($items as item()*) { $items }; local:f((1,2))',
+            line: 0, column: 55
+          }
+        }).then(response => {
+          expect(response.body.contents.value).to.contain('`$items`');
+          expect(response.body.contents.value).to.contain('item()*');
+        });
+      });
+    });
+
     it('renders empty-sequence() return type cleanly (no concat artifact)', () => {
       // Cardinality.EMPTY_SEQUENCE.toXQueryCardinalityString() returns the
       // literal "empty-sequence()", not a postfix marker. Naively concatenating

@@ -13,11 +13,14 @@ import org.exist.xquery.AnalyzeContextInfo;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.DefaultExpressionVisitor;
 import org.exist.xquery.Expression;
+import org.exist.xquery.ForExpr;
 import org.exist.xquery.Function;
 import org.exist.xquery.FunctionCall;
 import org.exist.xquery.FunctionSignature;
+import org.exist.xquery.LetExpr;
 import org.exist.xquery.PathExpr;
 import org.exist.xquery.UserDefinedFunction;
+import org.exist.xquery.VariableDeclaration;
 import org.exist.xquery.VariableReference;
 import org.exist.xquery.XPathException;
 import org.exist.xquery.XQueryContext;
@@ -25,8 +28,10 @@ import org.exist.xquery.functions.map.MapType;
 import org.exist.xquery.parser.XQueryLexer;
 import org.exist.xquery.parser.XQueryParser;
 import org.exist.xquery.parser.XQueryTreeParser;
+import org.exist.xquery.value.FunctionParameterSequenceType;
 import org.exist.xquery.value.IntegerValue;
 import org.exist.xquery.value.Sequence;
+import org.exist.xquery.value.SequenceType;
 import org.exist.xquery.value.StringValue;
 import org.exist.xquery.value.Type;
 
@@ -127,7 +132,8 @@ public class Hover extends BasicFunction {
                 }
 
                 if (finder.foundExpression != null) {
-                    return buildHoverResult(finder.foundExpression);
+                    return buildHoverResult(finder.foundExpression, path, pContext,
+                            targetLine, targetColumn);
                 }
             } finally {
                 context.popNamespaceContext();
@@ -169,14 +175,16 @@ public class Hover extends BasicFunction {
         }
     }
 
-    private Sequence buildHoverResult(final Expression expr) throws XPathException {
+    private Sequence buildHoverResult(final Expression expr, final PathExpr path,
+            final XQueryContext pContext, final int targetLine, final int targetColumn)
+            throws XPathException {
         if (expr instanceof final FunctionCall call) {
             return buildFunctionHover(call.getSignature());
         } else if (expr instanceof final Function func) {
             // Built-in function (inner function from InternalFunctionCall)
             return buildFunctionHover(func.getSignature());
         } else if (expr instanceof final VariableReference varRef) {
-            return buildVariableHover(varRef);
+            return buildVariableHover(varRef, path, pContext, targetLine, targetColumn);
         }
         return Sequence.EMPTY_SEQUENCE;
     }
@@ -185,13 +193,66 @@ public class Hover extends BasicFunction {
         return buildHoverMap(MarkdownFormatter.functionMarkdown(sig));
     }
 
-    private Sequence buildVariableHover(final VariableReference varRef) throws XPathException {
+    private Sequence buildVariableHover(final VariableReference varRef, final PathExpr path,
+            final XQueryContext pContext, final int targetLine, final int targetColumn)
+            throws XPathException {
         final org.exist.dom.QName name = varRef.getName();
         final String prefix = name.getPrefix();
         final String varName = (prefix != null && !prefix.isEmpty())
                 ? "$" + prefix + ":" + name.getLocalPart()
                 : "$" + name.getLocalPart();
-        return buildHoverMap("`" + varName + "`");
+
+        final SequenceType type = findVariableType(name, path, pContext, targetLine, targetColumn);
+        final StringBuilder md = new StringBuilder();
+        md.append('`').append(varName).append('`');
+        if (type != null) {
+            md.append(" as `").append(MarkdownFormatter.formatType(type)).append('`');
+            if (type instanceof final FunctionParameterSequenceType p) {
+                final String desc = p.getDescription();
+                if (desc != null && !desc.isEmpty()) {
+                    md.append("\n\n").append(desc.trim());
+                }
+            }
+        }
+        return buildHoverMap(md.toString());
+    }
+
+    /**
+     * Walk the AST looking for the most recent in-scope binding of the named
+     * variable: prolog-declared globals ({@code declare variable $x ...}),
+     * FLWOR bindings ({@code let $x ...}, {@code for $x ...}), and
+     * user-function parameters. The last matching binding whose declaration
+     * position is at or before the cursor wins.
+     */
+    private static SequenceType findVariableType(final org.exist.dom.QName target,
+            final PathExpr path, final XQueryContext pContext,
+            final int targetLine, final int targetColumn) {
+        final VariableTypeFinder finder = new VariableTypeFinder(target, targetLine, targetColumn);
+        path.accept(finder);
+        // Also walk user-function bodies — for hover on a parameter ref
+        // inside a function body where the function is declared as a sibling
+        // in the prolog rather than the body's parent path.
+        final Iterator<UserDefinedFunction> fns = pContext.localFunctions();
+        while (fns.hasNext()) {
+            final UserDefinedFunction fn = fns.next();
+            considerFunctionParameter(fn, target, finder);
+            fn.getFunctionBody().accept(finder);
+        }
+        return finder.foundType;
+    }
+
+    private static void considerFunctionParameter(final UserDefinedFunction fn,
+            final org.exist.dom.QName target, final VariableTypeFinder finder) {
+        final SequenceType[] argTypes = fn.getSignature().getArgumentTypes();
+        if (argTypes == null) {
+            return;
+        }
+        for (final SequenceType argType : argTypes) {
+            if (argType instanceof final FunctionParameterSequenceType p
+                    && target.getLocalPart().equals(p.getAttributeName())) {
+                finder.foundType = argType;
+            }
+        }
     }
 
     private Sequence buildHoverMap(final String markdown) throws XPathException {
@@ -213,6 +274,92 @@ public class Hover extends BasicFunction {
      * how to enter FLWOR expressions, which don't expose children via
      * {@code getSubExpressionCount()}.</p>
      */
+    /**
+     * Visitor that finds the type of an in-scope binding for a named variable
+     * at the cursor position. Walks let/for/prolog/function bindings; the
+     * latest matching binding whose declaration position is at-or-before the
+     * cursor wins (mirrors XQuery's lexical scoping with last-binding-shadows
+     * — without re-implementing full scope tracking).
+     */
+    static class VariableTypeFinder extends DefaultExpressionVisitor {
+        private final org.exist.dom.QName target;
+        private final int targetLine;
+        private final int targetColumn;
+        SequenceType foundType;
+
+        VariableTypeFinder(final org.exist.dom.QName target,
+                final int targetLine, final int targetColumn) {
+            this.target = target;
+            this.targetLine = targetLine;
+            this.targetColumn = targetColumn;
+        }
+
+        @Override
+        public void visitLetExpression(final LetExpr let) {
+            consider(let.getLine(), let.getColumn(), let.getVariable(), inferredType(let.getInputSequence()));
+            super.visitLetExpression(let);
+        }
+
+        @Override
+        public void visitForExpression(final ForExpr forExpr) {
+            // For-loop bindings iterate one-at-a-time, so the bound var has
+            // the input's item type with cardinality EXACTLY_ONE — not the
+            // sequence cardinality of the input expression.
+            final Expression input = forExpr.getInputSequence();
+            final SequenceType type = input == null ? null
+                    : new SequenceType(input.returnsType(), org.exist.xquery.Cardinality.EXACTLY_ONE);
+            consider(forExpr.getLine(), forExpr.getColumn(), forExpr.getVariable(), type);
+            super.visitForExpression(forExpr);
+        }
+
+        /**
+         * BindingExpression's declared {@code sequenceType} field is protected
+         * with no public getter, so for {@code let}/{@code for} we synthesize
+         * a SequenceType from the bound expression's inferred return type and
+         * cardinality. This is the analysis-inferred type, not necessarily
+         * the user's literal type annotation — for {@code let $x := //para}
+         * the user sees {@code element()*} (correct), and for
+         * {@code let $x as xs:integer := 1} they see {@code xs:integer}
+         * because the inferred type happens to match.
+         */
+        private static SequenceType inferredType(final Expression input) {
+            if (input == null) {
+                return null;
+            }
+            return new SequenceType(input.returnsType(), input.getCardinality());
+        }
+
+        @Override
+        public void visitVariableDeclaration(final VariableDeclaration varDecl) {
+            // Prolog globals are visible everywhere — no position check.
+            if (target.equals(varDecl.getName())) {
+                foundType = varDecl.getSequenceType();
+            }
+        }
+
+        @Override
+        public void visit(final Expression expression) {
+            for (int i = 0; i < expression.getSubExpressionCount(); i++) {
+                expression.getSubExpression(i).accept(this);
+            }
+        }
+
+        private void consider(final int line, final int column,
+                final org.exist.dom.QName varName, final SequenceType type) {
+            // Match on local part — FLWOR bindings rarely carry namespace
+            // prefixes, and the hover target is typically the same shape.
+            if (varName == null || !target.getLocalPart().equals(varName.getLocalPart())) {
+                return;
+            }
+            // Only count bindings whose source position is at-or-before the
+            // cursor — a let bound below the cursor isn't in scope above.
+            if (line > 0 && (line < targetLine
+                    || (line == targetLine && column <= targetColumn))) {
+                foundType = type;
+            }
+        }
+    }
+
     static class NodeAtPositionFinder extends DefaultExpressionVisitor {
         private final int targetLine;
         private final int targetColumn;
