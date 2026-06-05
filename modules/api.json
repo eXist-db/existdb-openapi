@@ -956,7 +956,7 @@
                   "properties": {
                     "signatures": {
                       "type": "array",
-                      "description": "One entry per overload (currently always one).",
+                      "description": "One entry per overload of the function at the cursor, sorted by arity ascending. For functions with a single arity, a single-element array.",
                       "items": {
                         "type": "object",
                         "properties": {

@@ -271,7 +271,7 @@ describe('/api/langservice', () => {
         expect(response.body).to.have.property('signatures').that.is.an('array').with.length.greaterThan(0);
         expect(response.body).to.have.property('activeSignature');
         expect(response.body).to.have.property('activeParameter');
-        const sig = response.body.signatures[0];
+        const sig = response.body.signatures[response.body.activeSignature];
         expect(sig.label).to.contain('substring');
         expect(sig.documentation).to.have.property('kind', 'markdown');
         expect(sig.parameters).to.be.an('array').with.length(3);
@@ -299,6 +299,39 @@ describe('/api/langservice', () => {
       }).then(response => {
         expect(response.status).to.eq(200);
         expect(response.body).to.be.null;
+      });
+    });
+
+    describe('overloads', () => {
+      it('returns all arities for an overloaded function (substring #2 + #3)', () => {
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'substring("abc", 2, 1)', line: 0, column: 17 }
+        }).then(response => {
+          expect(response.body.signatures).to.have.length(2);
+          const arities = response.body.signatures.map(s => s.parameters.length).sort();
+          expect(arities).to.deep.eq([2, 3]);
+        });
+      });
+
+      it('activeSignature points to the overload matching the call site arity', () => {
+        // Call site has 3 args → activeSignature should be the #3 overload
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'substring("abc", 2, 1)', line: 0, column: 17 }
+        }).then(response => {
+          const active = response.body.signatures[response.body.activeSignature];
+          expect(active.parameters).to.have.length(3);
+        });
+
+        // Call site has 2 args → activeSignature should be the #2 overload
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'substring("abc", 2)', line: 0, column: 14 }
+        }).then(response => {
+          const active = response.body.signatures[response.body.activeSignature];
+          expect(active.parameters).to.have.length(2);
+        });
       });
     });
   });

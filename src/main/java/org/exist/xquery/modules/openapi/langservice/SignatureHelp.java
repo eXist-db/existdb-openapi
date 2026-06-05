@@ -6,11 +6,13 @@ package org.exist.xquery.modules.openapi.langservice;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.exist.dom.QName;
 import org.exist.xquery.AnalyzeContextInfo;
 import org.exist.xquery.BasicFunction;
 import org.exist.xquery.DefaultExpressionVisitor;
@@ -18,6 +20,7 @@ import org.exist.xquery.Expression;
 import org.exist.xquery.Function;
 import org.exist.xquery.FunctionCall;
 import org.exist.xquery.FunctionSignature;
+import org.exist.xquery.Module;
 import org.exist.xquery.PathExpr;
 import org.exist.xquery.UserDefinedFunction;
 import org.exist.xquery.XPathException;
@@ -140,7 +143,8 @@ public class SignatureHelp extends BasicFunction {
                 }
                 final int activeParam = computeActiveParameter(expr, line0, col0,
                         finder.bestLine, finder.bestColumn);
-                return buildSignatureHelp(finder.bestSignature, activeParam);
+                final List<FunctionSignature> overloads = collectOverloads(pContext, finder.bestSignature);
+                return buildSignatureHelp(overloads, finder.bestSignature, activeParam);
             } finally {
                 context.popNamespaceContext();
                 pContext.reset(false);
@@ -176,7 +180,31 @@ public class SignatureHelp extends BasicFunction {
         }
     }
 
-    private Sequence buildSignatureHelp(final FunctionSignature sig, final int activeParam) throws XPathException {
+    private Sequence buildSignatureHelp(final List<FunctionSignature> overloads,
+            final FunctionSignature resolved, final int activeParam) throws XPathException {
+        final List<Sequence> signatures = new ArrayList<>(overloads.size());
+        int activeSig = 0;
+        for (int i = 0; i < overloads.size(); i++) {
+            final FunctionSignature sig = overloads.get(i);
+            if (sig.getArgumentCount() == resolved.getArgumentCount()) {
+                activeSig = i;
+            }
+            signatures.add(buildSignatureInfo(sig));
+        }
+
+        final FunctionSignature activeOverload = overloads.get(activeSig);
+        final int activeArity = activeOverload.getArgumentCount();
+        final int clampedParam = activeArity == 0
+                ? 0 : Math.min(Math.max(activeParam, 0), activeArity - 1);
+
+        final MapType result = new MapType(this, context);
+        result.add(new StringValue(this, "signatures"), new ArrayType(this, context, signatures));
+        result.add(new StringValue(this, "activeSignature"), new IntegerValue(this, activeSig));
+        result.add(new StringValue(this, "activeParameter"), new IntegerValue(this, clampedParam));
+        return result;
+    }
+
+    private MapType buildSignatureInfo(final FunctionSignature sig) throws XPathException {
         final MapType sigInfo = new MapType(this, context);
         sigInfo.add(new StringValue(this, "label"),
                 new StringValue(this, MarkdownFormatter.signatureLabel(sig)));
@@ -197,17 +225,68 @@ public class SignatureHelp extends BasicFunction {
         }
         sigInfo.add(new StringValue(this, "parameters"),
                 new ArrayType(this, context, paramInfos));
+        return sigInfo;
+    }
 
-        final List<Sequence> signatures = new ArrayList<>();
-        signatures.add(sigInfo);
+    /**
+     * Collect all overloads of the resolved function — same QName, any arity —
+     * sorted by arity ascending.
+     *
+     * <p>Searches three sources:</p>
+     * <ol>
+     *   <li>The module matching the resolved function's namespace — built-in
+     *       modules pre-register every signature, so their {@code listFunctions()}
+     *       returns all arities (XQueryContext's getSignaturesForFunction only
+     *       returns what the current compilation has *loaded*, so it misses
+     *       arities the user code didn't reference).</li>
+     *   <li>{@link XQueryContext#localFunctions()} for user-declared
+     *       functions whose names match.</li>
+     *   <li>Always includes the resolved sig itself (defensive — if the lookups
+     *       above somehow miss it, the active sig is still in the result).</li>
+     * </ol>
+     *
+     * <p>Deduplicates by arity; for the rare case of two registrations of the
+     * same name+arity, the first wins.</p>
+     */
+    private static List<FunctionSignature> collectOverloads(final XQueryContext pContext,
+            final FunctionSignature resolved) {
+        final QName target = resolved.getName();
+        final List<FunctionSignature> overloads = new ArrayList<>();
+        final boolean[] seenArity = new boolean[256];
 
-        final MapType result = new MapType(this, context);
-        result.add(new StringValue(this, "signatures"), new ArrayType(this, context, signatures));
-        result.add(new StringValue(this, "activeSignature"), new IntegerValue(this, 0));
-        final int clampedParam = (argTypes == null || argTypes.length == 0)
-                ? 0 : Math.min(Math.max(activeParam, 0), argTypes.length - 1);
-        result.add(new StringValue(this, "activeParameter"), new IntegerValue(this, clampedParam));
-        return result;
+        final Iterator<Module> modules = pContext.getAllModules();
+        while (modules.hasNext()) {
+            final Module module = modules.next();
+            if (!target.getNamespaceURI().equals(module.getNamespaceURI())) {
+                continue;
+            }
+            for (final FunctionSignature s : module.listFunctions()) {
+                if (target.equals(s.getName())) {
+                    addUnique(overloads, seenArity, s);
+                }
+            }
+        }
+
+        final Iterator<UserDefinedFunction> userFns = pContext.localFunctions();
+        while (userFns.hasNext()) {
+            final FunctionSignature s = userFns.next().getSignature();
+            if (target.equals(s.getName())) {
+                addUnique(overloads, seenArity, s);
+            }
+        }
+
+        addUnique(overloads, seenArity, resolved);
+        overloads.sort(Comparator.comparingInt(FunctionSignature::getArgumentCount));
+        return overloads;
+    }
+
+    private static void addUnique(final List<FunctionSignature> into,
+            final boolean[] seenArity, final FunctionSignature s) {
+        final int arity = s.getArgumentCount();
+        if (arity >= 0 && arity < seenArity.length && !seenArity[arity]) {
+            seenArity[arity] = true;
+            into.add(s);
+        }
     }
 
     private MapType buildMarkupContent(final String markdown) throws XPathException {
