@@ -4,7 +4,6 @@
  */
 package org.exist.xquery.modules.openapi.langservice;
 
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -13,30 +12,19 @@ import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.exist.dom.QName;
-import org.exist.xquery.AnalyzeContextInfo;
 import org.exist.xquery.BasicFunction;
-import org.exist.xquery.DefaultExpressionVisitor;
-import org.exist.xquery.Expression;
-import org.exist.xquery.Function;
-import org.exist.xquery.FunctionCall;
 import org.exist.xquery.FunctionSignature;
 import org.exist.xquery.Module;
-import org.exist.xquery.PathExpr;
 import org.exist.xquery.UserDefinedFunction;
 import org.exist.xquery.XPathException;
 import org.exist.xquery.XQueryContext;
 import org.exist.xquery.functions.array.ArrayType;
 import org.exist.xquery.functions.map.MapType;
-import org.exist.xquery.parser.XQueryLexer;
-import org.exist.xquery.parser.XQueryParser;
-import org.exist.xquery.parser.XQueryTreeParser;
 import org.exist.xquery.value.IntegerValue;
 import org.exist.xquery.value.Sequence;
 import org.exist.xquery.value.SequenceType;
 import org.exist.xquery.value.StringValue;
 import org.exist.xquery.value.Type;
-
-import antlr.collections.AST;
 
 import static org.exist.xquery.FunctionDSL.*;
 
@@ -61,12 +49,34 @@ import static org.exist.xquery.FunctionDSL.*;
  * }
  * </pre>
  *
- * <p>The active parameter is computed by scanning back from the cursor to the
- * function-call's opening paren and counting commas at the same paren depth.
- * Nested function calls and string literals are tracked.</p>
+ * <p>The lookup is <strong>name-based and lenient about incomplete syntax</strong>
+ * — mid-typing states like {@code util:log(}, {@code util:log("info",}, or
+ * {@code util:log("info", "msg", } are all valid inputs and produce help.
+ * Internally:</p>
  *
- * <p>Returns an empty sequence if the cursor is not inside a function-call
- * argument list.</p>
+ * <ol>
+ *   <li>Scan the raw text forward from the start of the expression to the
+ *       cursor, maintaining a stack of unmatched open parens (skipping string
+ *       literals). The top of the stack is the open paren of the enclosing
+ *       call.</li>
+ *   <li>Walk left from that open paren over whitespace and capture the
+ *       function name (optionally prefixed: {@code prefix:local}).</li>
+ *   <li>Resolve the prefix to a namespace URI via the XQuery context's
+ *       in-scope namespaces. {@code prefix}-less names resolve in the default
+ *       function namespace (fn).</li>
+ *   <li>Collect all loaded signatures with that QName (same approach as
+ *       {@link Completions} — walk every module whose namespaceURI matches,
+ *       plus user-declared local functions), sorted by arity ascending.</li>
+ *   <li>Compute {@code activeParameter} by counting top-level commas between
+ *       the open paren and the cursor (string-literal-aware).</li>
+ *   <li>Pick {@code activeSignature}: the smallest-arity overload whose arity
+ *       is at least {@code activeParameter + 1}; falls back to the
+ *       largest-arity overload if no overload has enough parameters.</li>
+ * </ol>
+ *
+ * <p>Returns an empty sequence if the cursor is not inside any open paren,
+ * or if the name walking back from the paren doesn't resolve to any known
+ * function.</p>
  */
 public class SignatureHelp extends BasicFunction {
 
@@ -75,7 +85,11 @@ public class SignatureHelp extends BasicFunction {
     private static final String FS_SIGNATURE_HELP_NAME = "signature-help";
     private static final String FS_SIGNATURE_HELP_DESCRIPTION = """
             Returns LSP-shaped SignatureHelp for the function call surrounding \
-            the cursor: a map with keys signatures (array of SignatureInformation \
+            the cursor. Name-based and lenient: mid-typing states like \
+            "util:log(", "util:log(\\"info\\",", and "util:log(\\"info\\", \\"x\\", " \
+            all produce help, since resolution is by function name (scanned \
+            from the raw text), not by requiring the partial call to parse. \
+            Returns a map with keys signatures (array of SignatureInformation \
             { label, documentation, parameters }), activeSignature (xs:integer, \
             index into signatures), and activeParameter (xs:integer, 0-based \
             index of the parameter the cursor is on, computed by counting \
@@ -101,6 +115,9 @@ public class SignatureHelp extends BasicFunction {
             )
     );
 
+    /** What the raw-text scan extracts for an enclosing function call. */
+    private record EnclosingCall(String prefix, String localPart, int openParenOffset) { }
+
     public SignatureHelp(final XQueryContext context, final FunctionSignature signature) {
         super(context, signature);
     }
@@ -110,11 +127,17 @@ public class SignatureHelp extends BasicFunction {
         final String expr = args[0].getStringValue();
         final int line0 = ((IntegerValue) args[1].itemAt(0)).getInt();
         final int col0 = ((IntegerValue) args[2].itemAt(0)).getInt();
-        // 1-based for the parser's line/column accounting
-        final int targetLine = line0 + 1;
-        final int targetColumn = col0 + 1;
 
-        if (expr.trim().isEmpty()) {
+        if (expr.isEmpty()) {
+            return Sequence.EMPTY_SEQUENCE;
+        }
+        final int cursorOffset = lineColumnToOffset(expr, line0, col0);
+        if (cursorOffset < 0) {
+            return Sequence.EMPTY_SEQUENCE;
+        }
+
+        final EnclosingCall enc = findEnclosingCall(expr, cursorOffset);
+        if (enc == null) {
             return Sequence.EMPTY_SEQUENCE;
         }
 
@@ -124,31 +147,26 @@ public class SignatureHelp extends BasicFunction {
                 pContext.setModuleLoadPath(args[3].getStringValue());
             }
 
-            context.pushNamespaceContext();
-            try {
-                final PathExpr path = compile(pContext, expr);
-                if (path == null) {
-                    return Sequence.EMPTY_SEQUENCE;
-                }
-
-                final EnclosingCallFinder finder = new EnclosingCallFinder(targetLine, targetColumn);
-                path.accept(finder);
-                final Iterator<UserDefinedFunction> localFuncs = pContext.localFunctions();
-                while (localFuncs.hasNext()) {
-                    localFuncs.next().getFunctionBody().accept(finder);
-                }
-
-                if (finder.bestSignature == null) {
-                    return Sequence.EMPTY_SEQUENCE;
-                }
-                final int activeParam = computeActiveParameter(expr, line0, col0,
-                        finder.bestLine, finder.bestColumn);
-                final List<FunctionSignature> overloads = collectOverloads(pContext, finder.bestSignature);
-                return buildSignatureHelp(overloads, finder.bestSignature, activeParam);
-            } finally {
-                context.popNamespaceContext();
-                pContext.reset(false);
+            final QName qname = resolveQName(pContext, enc.prefix(), enc.localPart());
+            if (qname == null) {
+                return Sequence.EMPTY_SEQUENCE;
             }
+
+            final List<FunctionSignature> overloads = collectOverloads(pContext, qname);
+            if (overloads.isEmpty()) {
+                return Sequence.EMPTY_SEQUENCE;
+            }
+
+            final int beforeCursor = countTopLevelCommas(expr, enc.openParenOffset() + 1, cursorOffset);
+            // Also scan forward past the cursor to the call's matching close
+            // paren (or end-of-input). Total commas in the call → intended
+            // arity, used to pick the activeSignature overload. This matters
+            // for cases like `substring("abc", 2, 1)` with the cursor *on* the
+            // 2: commas-before-cursor alone would pick the #2 overload, but
+            // the user clearly intends #3.
+            final int afterCursor = countTopLevelCommas(expr, cursorOffset, expr.length());
+            final int intendedArity = beforeCursor + afterCursor + 1;
+            return buildSignatureHelp(overloads, beforeCursor, intendedArity);
         } catch (final Exception e) {
             logger.debug("Error during signature-help lookup: {}", e.getMessage());
         } finally {
@@ -157,43 +175,183 @@ public class SignatureHelp extends BasicFunction {
         return Sequence.EMPTY_SEQUENCE;
     }
 
-    private PathExpr compile(final XQueryContext pContext, final String expr) {
-        try {
-            final XQueryLexer lexer = new XQueryLexer(pContext, new StringReader(expr));
-            final XQueryParser parser = new XQueryParser(lexer);
-            final XQueryTreeParser astParser = new XQueryTreeParser(pContext);
-            parser.xpath();
-            if (parser.foundErrors()) {
-                return null;
-            }
-            final AST ast = parser.getAST();
-            final PathExpr path = new PathExpr(pContext);
-            astParser.xpath(ast, path);
-            if (astParser.foundErrors()) {
-                return null;
-            }
-            path.analyze(new AnalyzeContextInfo());
-            return path;
-        } catch (final Exception e) {
-            logger.debug("Error compiling expression for signature-help: {}", e.getMessage());
+    /**
+     * Forward-scan from the start of the expression to the cursor, maintaining
+     * a stack of unmatched open-paren offsets. The top of the stack is the
+     * open paren of the call we're inside. Then walk left over whitespace and
+     * an NCName (possibly prefixed) to extract the function name.
+     *
+     * @return the enclosing call, or {@code null} if the cursor isn't inside
+     *         a function-call argument list (no enclosing paren, or the
+     *         characters before the paren don't form a function name).
+     */
+    private static EnclosingCall findEnclosingCall(final String expr, final int cursorOffset) {
+        final int openParen = findEnclosingOpenParen(expr, cursorOffset);
+        if (openParen < 0) {
             return null;
+        }
+        return extractFunctionNameBefore(expr, openParen);
+    }
+
+    private static int findEnclosingOpenParen(final String expr, final int cursorOffset) {
+        final java.util.ArrayDeque<Integer> parenStack = new java.util.ArrayDeque<>();
+        final int end = Math.min(cursorOffset, expr.length());
+        int i = 0;
+        while (i < end) {
+            final char c = expr.charAt(i);
+            if (c == '"' || c == '\'') {
+                final int after = skipString(expr, i, c);
+                i = after < 0 ? end : after + 1;
+                continue;
+            }
+            if (c == '(') {
+                parenStack.push(i);
+            } else if (c == ')' && !parenStack.isEmpty()) {
+                parenStack.pop();
+            }
+            i++;
+        }
+        return parenStack.isEmpty() ? -1 : parenStack.peek();
+    }
+
+    private static EnclosingCall extractFunctionNameBefore(final String expr, final int openParen) {
+        final int nameEnd = skipWhitespaceLeft(expr, openParen - 1);
+        if (nameEnd < 0) {
+            return null;
+        }
+        final int nameStart = skipNCNameLeft(expr, nameEnd);
+        if (nameStart > nameEnd) {
+            return null;
+        }
+        final String localPart = expr.substring(nameStart, nameEnd + 1);
+        final String prefix = extractPrefixBefore(expr, nameStart);
+        return new EnclosingCall(prefix, localPart, openParen);
+    }
+
+    private static int skipWhitespaceLeft(final String expr, final int from) {
+        int i = from;
+        while (i >= 0 && Character.isWhitespace(expr.charAt(i))) {
+            i--;
+        }
+        return i;
+    }
+
+    private static int skipNCNameLeft(final String expr, final int from) {
+        int i = from;
+        while (i > 0 && isNCNameChar(expr.charAt(i - 1))) {
+            i--;
+        }
+        return i;
+    }
+
+    /**
+     * If position {@code nameStart - 1} is a colon, walk further left over
+     * NCName chars and return that prefix. Otherwise return empty string.
+     */
+    private static String extractPrefixBefore(final String expr, final int nameStart) {
+        if (nameStart <= 0 || expr.charAt(nameStart - 1) != ':') {
+            return "";
+        }
+        final int prefixEnd = nameStart - 1;
+        final int prefixStart = skipNCNameLeft(expr, prefixEnd);
+        return prefixStart < prefixEnd ? expr.substring(prefixStart, prefixEnd) : "";
+    }
+
+    private static boolean isNCNameChar(final char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+    }
+
+    /**
+     * Build a QName for the function being called. If a prefix is present,
+     * resolve it via the in-scope namespaces of a fresh XQuery context (which
+     * has the standard built-in prefixes bound: fn, xs, util, xmldb, map,
+     * array, math, etc.). For unprefixed names, use the default function
+     * namespace (fn).
+     */
+    private static QName resolveQName(final XQueryContext pContext,
+            final String prefix, final String localPart) {
+        if (localPart == null || localPart.isEmpty()) {
+            return null;
+        }
+        final String uri = prefix == null || prefix.isEmpty()
+                ? pContext.getDefaultFunctionNamespace()
+                : pContext.getURIForPrefix(prefix);
+        if (uri == null || uri.isEmpty()) {
+            return null;
+        }
+        return new QName(localPart, uri, prefix == null ? "" : prefix);
+    }
+
+    /**
+     * Collect all overloads of the given QName — same name+namespace, any
+     * arity — sorted by arity ascending.
+     *
+     * <p>Searches the module matching the namespace and {@link
+     * XQueryContext#localFunctions()} for user-declared overloads.</p>
+     */
+    private static List<FunctionSignature> collectOverloads(final XQueryContext pContext,
+            final QName target) {
+        final List<FunctionSignature> overloads = new ArrayList<>();
+        final boolean[] seenArity = new boolean[256];
+
+        final Iterator<Module> modules = pContext.getAllModules();
+        while (modules.hasNext()) {
+            final Module module = modules.next();
+            if (!target.getNamespaceURI().equals(module.getNamespaceURI())) {
+                continue;
+            }
+            for (final FunctionSignature s : module.listFunctions()) {
+                if (!s.isPrivate() && target.equals(s.getName())) {
+                    addUnique(overloads, seenArity, s);
+                }
+            }
+        }
+
+        final Iterator<UserDefinedFunction> userFns = pContext.localFunctions();
+        while (userFns.hasNext()) {
+            final FunctionSignature s = userFns.next().getSignature();
+            if (target.equals(s.getName())) {
+                addUnique(overloads, seenArity, s);
+            }
+        }
+
+        overloads.sort(Comparator.comparingInt(FunctionSignature::getArgumentCount));
+        return overloads;
+    }
+
+    private static void addUnique(final List<FunctionSignature> into,
+            final boolean[] seenArity, final FunctionSignature s) {
+        final int arity = s.getArgumentCount();
+        if (arity >= 0 && arity < seenArity.length && !seenArity[arity]) {
+            seenArity[arity] = true;
+            into.add(s);
         }
     }
 
-    private Sequence buildSignatureHelp(final List<FunctionSignature> overloads,
-            final FunctionSignature resolved, final int activeParam) throws XPathException {
-        final List<Sequence> signatures = new ArrayList<>(overloads.size());
-        int activeSig = 0;
+    /**
+     * Pick the active overload: the smallest-arity overload whose arity is at
+     * least {@code intendedArity}; falls back to the largest available if
+     * none has enough. Assumes {@code overloads} is sorted by arity ascending.
+     */
+    private static int pickActiveSignature(final List<FunctionSignature> overloads,
+            final int intendedArity) {
         for (int i = 0; i < overloads.size(); i++) {
-            final FunctionSignature sig = overloads.get(i);
-            if (sig.getArgumentCount() == resolved.getArgumentCount()) {
-                activeSig = i;
+            if (overloads.get(i).getArgumentCount() >= intendedArity) {
+                return i;
             }
+        }
+        return overloads.size() - 1;
+    }
+
+    private Sequence buildSignatureHelp(final List<FunctionSignature> overloads,
+            final int activeParam, final int intendedArity) throws XPathException {
+        final List<Sequence> signatures = new ArrayList<>(overloads.size());
+        for (final FunctionSignature sig : overloads) {
             signatures.add(buildSignatureInfo(sig));
         }
-
-        final FunctionSignature activeOverload = overloads.get(activeSig);
-        final int activeArity = activeOverload.getArgumentCount();
+        final int activeSig = pickActiveSignature(overloads, intendedArity);
+        final int activeArity = overloads.get(activeSig).getArgumentCount();
         final int clampedParam = activeArity == 0
                 ? 0 : Math.min(Math.max(activeParam, 0), activeArity - 1);
 
@@ -228,67 +386,6 @@ public class SignatureHelp extends BasicFunction {
         return sigInfo;
     }
 
-    /**
-     * Collect all overloads of the resolved function — same QName, any arity —
-     * sorted by arity ascending.
-     *
-     * <p>Searches three sources:</p>
-     * <ol>
-     *   <li>The module matching the resolved function's namespace — built-in
-     *       modules pre-register every signature, so their {@code listFunctions()}
-     *       returns all arities (XQueryContext's getSignaturesForFunction only
-     *       returns what the current compilation has *loaded*, so it misses
-     *       arities the user code didn't reference).</li>
-     *   <li>{@link XQueryContext#localFunctions()} for user-declared
-     *       functions whose names match.</li>
-     *   <li>Always includes the resolved sig itself (defensive — if the lookups
-     *       above somehow miss it, the active sig is still in the result).</li>
-     * </ol>
-     *
-     * <p>Deduplicates by arity; for the rare case of two registrations of the
-     * same name+arity, the first wins.</p>
-     */
-    private static List<FunctionSignature> collectOverloads(final XQueryContext pContext,
-            final FunctionSignature resolved) {
-        final QName target = resolved.getName();
-        final List<FunctionSignature> overloads = new ArrayList<>();
-        final boolean[] seenArity = new boolean[256];
-
-        final Iterator<Module> modules = pContext.getAllModules();
-        while (modules.hasNext()) {
-            final Module module = modules.next();
-            if (!target.getNamespaceURI().equals(module.getNamespaceURI())) {
-                continue;
-            }
-            for (final FunctionSignature s : module.listFunctions()) {
-                if (target.equals(s.getName())) {
-                    addUnique(overloads, seenArity, s);
-                }
-            }
-        }
-
-        final Iterator<UserDefinedFunction> userFns = pContext.localFunctions();
-        while (userFns.hasNext()) {
-            final FunctionSignature s = userFns.next().getSignature();
-            if (target.equals(s.getName())) {
-                addUnique(overloads, seenArity, s);
-            }
-        }
-
-        addUnique(overloads, seenArity, resolved);
-        overloads.sort(Comparator.comparingInt(FunctionSignature::getArgumentCount));
-        return overloads;
-    }
-
-    private static void addUnique(final List<FunctionSignature> into,
-            final boolean[] seenArity, final FunctionSignature s) {
-        final int arity = s.getArgumentCount();
-        if (arity >= 0 && arity < seenArity.length && !seenArity[arity]) {
-            seenArity[arity] = true;
-            into.add(s);
-        }
-    }
-
     private MapType buildMarkupContent(final String markdown) throws XPathException {
         final MapType mc = new MapType(this, context);
         mc.add(new StringValue(this, "kind"), new StringValue(this, "markdown"));
@@ -297,30 +394,9 @@ public class SignatureHelp extends BasicFunction {
     }
 
     /**
-     * Scan the expression text from the function-call's opening paren to the
-     * cursor position, counting commas at the call's paren depth. String
-     * literals (single and double quoted) are skipped to avoid mistaking
-     * commas inside strings for argument separators.
-     *
-     * @param callLine 1-based line of the FunctionCall start
-     * @param callColumn 1-based column of the FunctionCall start
-     * @return 0-based active-parameter index, or 0 if it can't be determined
+     * Count top-level commas (commas not inside nested parens or string
+     * literals) between {@code from} and {@code to}, exclusive.
      */
-    private static int computeActiveParameter(final String expr,
-            final int cursorLine0, final int cursorCol0,
-            final int callLine, final int callColumn) {
-        final int callOffset = lineColumnToOffset(expr, callLine - 1, callColumn - 1);
-        final int cursorOffset = lineColumnToOffset(expr, cursorLine0, cursorCol0);
-        if (callOffset < 0 || cursorOffset < 0 || cursorOffset <= callOffset) {
-            return 0;
-        }
-        final int openParen = expr.indexOf('(', callOffset);
-        if (openParen < 0 || openParen >= cursorOffset) {
-            return 0;
-        }
-        return countTopLevelCommas(expr, openParen + 1, cursorOffset);
-    }
-
     private static int countTopLevelCommas(final String expr, final int from, final int to) {
         int depth = 0;
         int commas = 0;
@@ -348,12 +424,6 @@ public class SignatureHelp extends BasicFunction {
         return commas;
     }
 
-    /**
-     * Returns the next index to inspect, or {@code -1} to stop the outer scan.
-     * Returning the current index means "no skip applied — process this char in
-     * the caller." Strings cause a jump past the closing quote; an unclosed
-     * close-paren at depth 0 signals end-of-call.
-     */
     private static int scanStep(final String expr, final int i, final char c, final int depth) {
         if (c == '"' || c == '\'') {
             final int after = skipString(expr, i, c);
@@ -395,59 +465,5 @@ public class SignatureHelp extends BasicFunction {
             }
         }
         return line == line0 && col == col0 ? s.length() : -1;
-    }
-
-    /**
-     * Finds the {@link FunctionCall} or built-in {@link Function} whose call
-     * site is the nearest enclosing one for the cursor position — the call
-     * whose start is at-or-before the cursor and whose column is greatest
-     * (deepest). Mirrors {@link Hover.NodeAtPositionFinder} but specifically
-     * for function calls; built-in functions are unwrapped via
-     * {@link DefaultExpressionVisitor#visitBuiltinFunction}.
-     */
-    static class EnclosingCallFinder extends DefaultExpressionVisitor {
-        private final int targetLine;
-        private final int targetColumn;
-        FunctionSignature bestSignature;
-        int bestLine = -1;
-        int bestColumn = -1;
-
-        EnclosingCallFinder(final int targetLine, final int targetColumn) {
-            this.targetLine = targetLine;
-            this.targetColumn = targetColumn;
-        }
-
-        @Override
-        public void visitFunctionCall(final FunctionCall call) {
-            consider(call, call.getSignature());
-            super.visitFunctionCall(call);
-        }
-
-        @Override
-        public void visitBuiltinFunction(final Function function) {
-            consider(function, function.getSignature());
-            super.visitBuiltinFunction(function);
-        }
-
-        @Override
-        public void visit(final Expression expression) {
-            for (int i = 0; i < expression.getSubExpressionCount(); i++) {
-                expression.getSubExpression(i).accept(this);
-            }
-        }
-
-        private void consider(final Expression expr, final FunctionSignature sig) {
-            if (sig == null) {
-                return;
-            }
-            final int line = expr.getLine();
-            final int column = expr.getColumn();
-            if (line == targetLine && column <= targetColumn
-                    && (column > bestColumn || bestColumn < 0)) {
-                bestSignature = sig;
-                bestLine = line;
-                bestColumn = column;
-            }
-        }
     }
 }

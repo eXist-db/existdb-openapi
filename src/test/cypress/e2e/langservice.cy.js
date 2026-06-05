@@ -314,6 +314,56 @@ describe('/api/langservice', () => {
         });
       });
 
+      it('resolves mid-typing calls (incomplete syntax)', () => {
+        // Lookup is name-based and lenient about incomplete syntax — these
+        // expressions don't parse as valid XQuery but should still produce
+        // help, since resolution scans the raw text for the enclosing call's
+        // function name rather than requiring a successful compile.
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'util:log(', line: 0, column: 9 }
+        }).then(response => {
+          expect(response.body).to.not.be.null;
+          expect(response.body.signatures[response.body.activeSignature].label).to.contain('log');
+          expect(response.body.activeParameter).to.eq(0);
+        });
+
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'util:log("info",', line: 0, column: 16 }
+        }).then(response => {
+          expect(response.body).to.not.be.null;
+          expect(response.body.activeParameter).to.eq(1);
+        });
+
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'substring("abc",', line: 0, column: 16 }
+        }).then(response => {
+          // 1 comma typed → intended arity ≥ 2 → smallest fitting is #2
+          expect(response.body.signatures).to.have.length(2);
+          expect(response.body.signatures[response.body.activeSignature].parameters).to.have.length(2);
+        });
+
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'substring("abc", 2,', line: 0, column: 19 }
+        }).then(response => {
+          // 2 commas typed → intended arity ≥ 3 → only #3 fits
+          expect(response.body.signatures[response.body.activeSignature].parameters).to.have.length(3);
+        });
+      });
+
+      it('returns null for unknown function names', () => {
+        cy.request({
+          url: '/api/langservice/signature-help', method: 'POST', auth,
+          body: { expression: 'foo:bar(', line: 0, column: 8 }
+        }).then(response => {
+          expect(response.status).to.eq(200);
+          expect(response.body).to.be.null;
+        });
+      });
+
       it('activeSignature points to the overload matching the call site arity', () => {
         // Call site has 3 args → activeSignature should be the #3 overload
         cy.request({
