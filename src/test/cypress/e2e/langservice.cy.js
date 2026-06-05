@@ -57,6 +57,70 @@ describe('/api/langservice', () => {
         expect(response.body[0]).to.have.property('kind');
       });
     });
+
+    describe('namespace scoping (issue #31)', () => {
+      it('scopes to the trailing prefix when cursor is at "util:"', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          expect(response.body).to.be.an('array').and.have.length.greaterThan(0);
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^util:/);
+          });
+        });
+      });
+
+      it('prefix-matches the local-name part ("fn:cou" → "fn:count")', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fn:cou' }
+        }).then(response => {
+          expect(response.body).to.be.an('array').and.have.length.greaterThan(0);
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^fn:cou/i);
+          });
+        });
+      });
+
+      it('drops keywords from the response when cursor is prefixed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          const keywordKinds = response.body.filter(i => i.kind === 14);
+          expect(keywordKinds).to.have.length(0);
+        });
+      });
+
+      it('returns the full set (and keywords) for a bare partial token', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          // Includes more than a single namespace
+          const prefixes = new Set(
+            response.body.filter(i => i.label.includes(':'))
+                         .map(i => i.label.split(':')[0])
+          );
+          expect(prefixes.size).to.be.greaterThan(3);
+          // Keyword still in the set
+          const keywordKinds = response.body.filter(i => i.kind === 14);
+          expect(keywordKinds).to.have.length.greaterThan(0);
+        });
+      });
+
+      it('honors the trailing token in a multi-line expression', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'let $x := 1\nreturn util:' }
+        }).then(response => {
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^util:/);
+          });
+        });
+      });
+    });
   });
 
   describe('POST /api/langservice/hover', () => {

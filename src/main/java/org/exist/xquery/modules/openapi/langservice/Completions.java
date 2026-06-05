@@ -117,9 +117,24 @@ public class Completions extends BasicFunction {
         super(context, signature);
     }
 
+    /**
+     * Classification of the identifier-like token at the cursor (i.e. at the
+     * end of the submitted expression). Drives server-side scoping: a {@code
+     * prefix:} cursor narrows the response to that namespace; a bare token
+     * gets the full set.
+     */
+    enum CursorMode { PREFIXED_PARTIAL, PREFIXED_EMPTY, BARE_PARTIAL, NONE }
+
+    record CursorToken(String prefix, String localPart, CursorMode mode) {
+        boolean isPrefixed() {
+            return mode == CursorMode.PREFIXED_PARTIAL || mode == CursorMode.PREFIXED_EMPTY;
+        }
+    }
+
     @Override
     public Sequence eval(final Sequence[] args, final Sequence contextSequence) throws XPathException {
         final String expr = args[0].getStringValue();
+        final CursorToken cursor = parseTrailingToken(expr);
         final List<Sequence> completions = new ArrayList<>();
 
         final XQueryContext pContext = new XQueryContext(context.getBroker().getBrokerPool());
@@ -129,16 +144,19 @@ public class Completions extends BasicFunction {
             }
 
             // Built-in module functions are always available
-            addBuiltinFunctions(pContext, completions);
+            addBuiltinFunctions(pContext, completions, cursor);
 
-            // Keywords
-            addKeywords(completions);
+            // Keywords — never offered when the cursor is scoped to a prefix,
+            // since `util:return`/`util:let` can't exist.
+            if (!cursor.isPrefixed()) {
+                addKeywords(completions);
+            }
 
             // Try to compile to discover user-declared symbols
             if (!expr.trim().isEmpty()) {
                 context.pushNamespaceContext();
                 try {
-                    addUserDeclaredSymbols(pContext, expr, completions);
+                    addUserDeclaredSymbols(pContext, expr, completions, cursor);
                 } finally {
                     context.popNamespaceContext();
                     pContext.reset(false);
@@ -152,10 +170,57 @@ public class Completions extends BasicFunction {
     }
 
     /**
-     * Adds completion items for all functions in all loaded built-in modules.
+     * Walks back from the end of {@code expr} matching the trailing
+     * identifier-like token. Recognises four shapes:
+     * <ul>
+     *   <li>{@code prefix:local} → {@link CursorMode#PREFIXED_PARTIAL}</li>
+     *   <li>{@code prefix:} → {@link CursorMode#PREFIXED_EMPTY}</li>
+     *   <li>{@code local} (no colon, non-empty) → {@link CursorMode#BARE_PARTIAL}</li>
+     *   <li>empty/whitespace/non-NCName end → {@link CursorMode#NONE}</li>
+     * </ul>
+     * NCName chars: ASCII letter/digit/hyphen/underscore/period. Conservative —
+     * misses non-ASCII identifiers but is correct for the common case.
      */
-    private void addBuiltinFunctions(final XQueryContext pContext, final List<Sequence> completions)
-            throws XPathException {
+    static CursorToken parseTrailingToken(final String expr) {
+        if (expr == null || expr.isEmpty()) {
+            return new CursorToken("", "", CursorMode.NONE);
+        }
+        int end = expr.length();
+        int i = end;
+        while (i > 0 && isNCNameChar(expr.charAt(i - 1))) {
+            i--;
+        }
+        final String tail = expr.substring(i, end);
+        if (i > 0 && expr.charAt(i - 1) == ':') {
+            int j = i - 1;
+            int k = j;
+            while (k > 0 && isNCNameChar(expr.charAt(k - 1))) {
+                k--;
+            }
+            if (k < j) {
+                final String prefix = expr.substring(k, j);
+                return new CursorToken(prefix, tail,
+                        tail.isEmpty() ? CursorMode.PREFIXED_EMPTY : CursorMode.PREFIXED_PARTIAL);
+            }
+        }
+        if (tail.isEmpty()) {
+            return new CursorToken("", "", CursorMode.NONE);
+        }
+        return new CursorToken("", tail, CursorMode.BARE_PARTIAL);
+    }
+
+    private static boolean isNCNameChar(final char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+    }
+
+    /**
+     * Adds completion items for functions in built-in modules. When the cursor
+     * is scoped to a namespace ({@code prefix:} or {@code prefix:partial}),
+     * only that module's functions are emitted; otherwise all built-ins.
+     */
+    private void addBuiltinFunctions(final XQueryContext pContext, final List<Sequence> completions,
+            final CursorToken cursor) throws XPathException {
         final Set<String> seen = new HashSet<>();
         final Iterator<Module> modules = pContext.getAllModules();
 
@@ -174,28 +239,41 @@ public class Completions extends BasicFunction {
                     prefix = "";
                 }
             }
-            final FunctionSignature[] signatures = module.listFunctions();
 
-            for (final FunctionSignature sig : signatures) {
-                if (sig.isPrivate()) {
-                    continue;
-                }
+            // Namespace scoping: skip modules whose bound prefix doesn't match
+            // the cursor's prefix when the cursor is prefixed.
+            if (cursor.isPrefixed() && !cursor.prefix().equals(prefix)) {
+                continue;
+            }
 
-                final QName name = sig.getName();
-                final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
-
-                // Deduplicate overloaded functions
-                if (!seen.add(label)) {
-                    continue;
-                }
-
-                final String detail = sig.toString();
-                final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
-                final String insertText = formatInsertText(prefix, name.getLocalPart());
-
-                addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, documentation, insertText);
+            for (final FunctionSignature sig : module.listFunctions()) {
+                addBuiltinFunction(completions, sig, prefix, cursor, seen);
             }
         }
+    }
+
+    private void addBuiltinFunction(final List<Sequence> completions, final FunctionSignature sig,
+            final String prefix, final CursorToken cursor, final Set<String> seen) throws XPathException {
+        if (sig.isPrivate()) {
+            return;
+        }
+        final QName name = sig.getName();
+        if (cursor.isPrefixed() && !cursor.localPart().isEmpty()
+                && !startsWithIgnoreCase(name.getLocalPart(), cursor.localPart())) {
+            return;
+        }
+        final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
+        if (!seen.add(label)) {
+            return;
+        }
+        final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
+        final String insertText = formatInsertText(prefix, name.getLocalPart());
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), documentation, insertText);
+    }
+
+    private static boolean startsWithIgnoreCase(final String s, final String prefix) {
+        return s.length() >= prefix.length()
+                && s.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
     /**
@@ -211,7 +289,7 @@ public class Completions extends BasicFunction {
      * Tries to compile the expression and adds user-declared functions and variables.
      */
     private void addUserDeclaredSymbols(final XQueryContext pContext, final String expr,
-            final List<Sequence> completions) throws XPathException {
+            final List<Sequence> completions, final CursorToken cursor) throws XPathException {
         try {
             final XQueryLexer lexer = new XQueryLexer(pContext, new StringReader(expr));
             final XQueryParser parser = new XQueryParser(lexer);
@@ -234,37 +312,50 @@ public class Completions extends BasicFunction {
             // User-declared functions
             final Iterator<UserDefinedFunction> funcs = pContext.localFunctions();
             while (funcs.hasNext()) {
-                final UserDefinedFunction func = funcs.next();
-                final FunctionSignature sig = func.getSignature();
-                final QName name = sig.getName();
-                final String prefix = name.getPrefix();
-                final String label = formatLabel(
-                        prefix != null ? prefix : "", name.getLocalPart(), sig.getArgumentCount());
-                final String detail = sig.toString();
-                final String insertText = formatInsertText(
-                        prefix != null ? prefix : "", name.getLocalPart());
-
-                addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, "", insertText);
+                addUserFunction(completions, funcs.next().getSignature(), cursor);
             }
 
-            // User-declared global variables
+            // User-declared global variables — never offered in prefixed mode
+            if (cursor.isPrefixed()) {
+                return;
+            }
             for (int i = 0; i < path.getSubExpressionCount(); i++) {
                 final Expression step = path.getSubExpression(i);
                 if (step instanceof final VariableDeclaration varDecl) {
-                    final QName name = varDecl.getName();
-                    final String varName = "$" + formatQName(name);
-                    final SequenceType seqType = varDecl.getSequenceType();
-                    final String detail = seqType != null
-                            ? Type.getTypeName(seqType.getPrimaryType()) + seqType.getCardinality().toXQueryCardinalityString()
-                            : "";
-
-                    addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "", varName);
+                    addVariable(completions, varDecl);
                 }
             }
 
         } catch (final Exception e) {
             logger.debug("Error compiling expression for completions: {}", e.getMessage());
         }
+    }
+
+    private void addUserFunction(final List<Sequence> completions, final FunctionSignature sig,
+            final CursorToken cursor) throws XPathException {
+        final QName name = sig.getName();
+        final String prefix = name.getPrefix() != null ? name.getPrefix() : "";
+        if (cursor.isPrefixed() && !cursor.prefix().equals(prefix)) {
+            return;
+        }
+        if (cursor.isPrefixed() && !cursor.localPart().isEmpty()
+                && !startsWithIgnoreCase(name.getLocalPart(), cursor.localPart())) {
+            return;
+        }
+        final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
+        final String insertText = formatInsertText(prefix, name.getLocalPart());
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), "", insertText);
+    }
+
+    private void addVariable(final List<Sequence> completions, final VariableDeclaration varDecl)
+            throws XPathException {
+        final QName name = varDecl.getName();
+        final String varName = "$" + formatQName(name);
+        final SequenceType seqType = varDecl.getSequenceType();
+        final String detail = seqType != null
+                ? Type.getTypeName(seqType.getPrimaryType()) + seqType.getCardinality().toXQueryCardinalityString()
+                : "";
+        addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "", varName);
     }
 
     /**
