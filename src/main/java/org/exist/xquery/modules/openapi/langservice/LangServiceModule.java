@@ -36,6 +36,7 @@ public class LangServiceModule extends AbstractInternalModule {
             functionDefs(Diagnostics.class, Diagnostics.FS_DIAGNOSTICS),
             functionDefs(Hover.class, Hover.FS_HOVER),
             functionDefs(References.class, References.FS_REFERENCES),
+            functionDefs(SignatureHelp.class, SignatureHelp.FS_SIGNATURE_HELP),
             functionDefs(Symbols.class, Symbols.FS_SYMBOLS)
     );
 

@@ -39,11 +39,17 @@ import static org.exist.xquery.FunctionDSL.*;
  * expression, suitable for Language Server Protocol {@code textDocument/hover}
  * responses.
  *
- * <p>Returns a map with the following keys:</p>
- * <ul>
- *   <li>{@code contents} — hover text (signature and/or documentation)</li>
- *   <li>{@code kind} — what was found: "function" or "variable"</li>
- * </ul>
+ * <p>Returns a map shaped like LSP's {@code Hover}:</p>
+ * <pre>
+ * {
+ *   "contents": { "kind": "markdown", "value": "&lt;markdown string&gt;" }
+ * }
+ * </pre>
+ *
+ * <p>The Markdown body contains a fenced XQuery code block for the signature,
+ * the function's prose description, a bullet list of parameters (each with
+ * type and per-parameter docs), and the return type. For variables, only the
+ * variable name (and type when known) is included.</p>
  *
  * <p>Returns an empty sequence if nothing is found at the given position.</p>
  *
@@ -56,10 +62,12 @@ public class Hover extends BasicFunction {
     private static final String FS_HOVER_NAME = "hover";
     private static final String FS_HOVER_DESCRIPTION = """
             Returns hover information for the symbol at the given position \
-            in the XQuery expression. Returns a map with keys: contents \
-            (xs:string, signature and documentation) and kind (xs:string, \
-            "function" or "variable"). Returns an empty sequence if no \
-            symbol is found at the position.""";
+            in the XQuery expression, shaped like LSP's Hover: a map with one \
+            key, contents, whose value is a MarkupContent map { kind: \
+            "markdown", value: "<markdown>" }. The Markdown body includes a \
+            fenced code block for the signature, the description, a bullet \
+            list of parameters, and the return type. Returns an empty \
+            sequence if no symbol is found at the position.""";
 
     public static final FunctionSignature[] FS_HOVER = functionSignatures(
             LangServiceModule.qname(FS_HOVER_NAME),
@@ -174,18 +182,7 @@ public class Hover extends BasicFunction {
     }
 
     private Sequence buildFunctionHover(final FunctionSignature sig) throws XPathException {
-        final StringBuilder contents = new StringBuilder();
-        contents.append(sig.toString());
-
-        final String description = sig.getDescription();
-        if (description != null && !description.isEmpty()) {
-            contents.append("\n\n").append(description);
-        }
-
-        final MapType result = new MapType(this, context);
-        result.add(new StringValue(this, "contents"), new StringValue(this, contents.toString()));
-        result.add(new StringValue(this, "kind"), new StringValue(this, "function"));
-        return result;
+        return buildHoverMap(MarkdownFormatter.functionMarkdown(sig));
     }
 
     private Sequence buildVariableHover(final VariableReference varRef) throws XPathException {
@@ -194,10 +191,16 @@ public class Hover extends BasicFunction {
         final String varName = (prefix != null && !prefix.isEmpty())
                 ? "$" + prefix + ":" + name.getLocalPart()
                 : "$" + name.getLocalPart();
+        return buildHoverMap("`" + varName + "`");
+    }
+
+    private Sequence buildHoverMap(final String markdown) throws XPathException {
+        final MapType contents = new MapType(this, context);
+        contents.add(new StringValue(this, "kind"), new StringValue(this, "markdown"));
+        contents.add(new StringValue(this, "value"), new StringValue(this, markdown));
 
         final MapType result = new MapType(this, context);
-        result.add(new StringValue(this, "contents"), new StringValue(this, varName));
-        result.add(new StringValue(this, "kind"), new StringValue(this, "variable"));
+        result.add(new StringValue(this, "contents"), contents);
         return result;
     }
 
