@@ -85,7 +85,7 @@ describe('/api/db', () => {
   });
 
   describe('PUT /api/db/resource — store', () => {
-    it('stores an XML resource', () => {
+    it('stores an XML resource with explicit mime-type', () => {
       cy.request({
         url: '/api/db/resource',
         method: 'PUT',
@@ -97,6 +97,164 @@ describe('/api/db', () => {
         }
       }).then(response => {
         expect(response.body).to.have.property('stored');
+      });
+    });
+
+    // Regression: prior to this fix the handler defaulted `mime-type` to
+    // "application/xml" when the client omitted it, so .xq / .xqm / .svg
+    // / .json content either failed the XML parse outright (XPST0003,
+    // "Content is not allowed in prolog") or stored with the wrong MIME.
+    // The fix drops the default and lets the 3-arg xmldb:store consult
+    // eXist's MimeTable to pick the right MIME from the extension.
+    it('auto-detects application/xquery from .xq extension when mime-type omitted', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/auto.xq`, content: 'xquery version "3.1"; 1+1' }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+        expect(response.body).to.have.property('stored');
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/auto.xq`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/xquery');
+      });
+    });
+
+    it('auto-detects application/xquery from .xqm extension when mime-type omitted', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/auto.xqm`,
+          content: 'xquery version "3.1"; module namespace t = "http://example.com/t";'
+        }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/auto.xqm`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/xquery');
+      });
+    });
+
+    it('auto-detects image/svg+xml from .svg extension when mime-type omitted', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/auto.svg`,
+          content: '<svg xmlns="http://www.w3.org/2000/svg"/>'
+        }
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/auto.svg`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('image/svg+xml');
+      });
+    });
+
+    it('auto-detects application/json from .json extension when mime-type omitted', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/auto.json`, content: '{"hello":"world"}' }
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/auto.json`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/json');
+      });
+    });
+
+    it('stores well-formed .html as text/html via auto-detection', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/wellformed.html`,
+          content: '<html><head><title>t</title></head><body><p>x</p></body></html>'
+        }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+        expect(response.body).to.have.property('stored');
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/wellformed.html`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('text/html');
+      });
+    });
+
+    it('returns 400 with a parse-error message for unparseable XML content', () => {
+      // Unclosed <img> — not well-formed XML. eXist's text/html is
+      // an XML-class mime, so the parser runs and rejects. Clients
+      // who need to preserve raw bytes should send
+      // mime-type=application/octet-stream explicitly.
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/bad.html`,
+          content: '<html><body><img src="x.png"></body></html>'
+        },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/parser|XML|img/i);
+      });
+    });
+
+    it('preserves raw bytes for unparseable content when mime-type=application/octet-stream', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/raw.html`,
+          content: '<html><body><img src="x.png"></body></html>',
+          'mime-type': 'application/octet-stream'
+        }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/raw.html`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/octet-stream');
+      });
+    });
+
+    it('still honors explicit mime-type override (e.g. xhtml+xml for an .html path)', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: {
+          path: `${testCollection}/explicit.html`,
+          content: '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body><p>x</p></body></html>',
+          'mime-type': 'application/xhtml+xml'
+        }
+      });
+      cy.request({
+        url: `/api/db/properties?path=${testCollection}/explicit.html`,
+        auth
+      }).then(response => {
+        expect(response.body['mime-type']).to.equal('application/xhtml+xml');
       });
     });
   });

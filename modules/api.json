@@ -1328,7 +1328,7 @@
       "put": {
         "summary": "Store resource",
         "operationId": "db:store-resource",
-        "description": "Stores or updates a resource in the database. The parent collection must exist. MIME type is auto-detected from the file extension if not specified.",
+        "description": "Stores or updates a resource in the database. The parent collection must exist. When `mime-type` is omitted the server looks up the appropriate MIME type for the path's filename extension via eXist's `mime-types.xml` (e.g. `.xq` → `application/xquery`, `.svg` → `image/svg+xml`, `.html` → `text/html`). Clients only need to send `mime-type` when they want to override that mapping (e.g. force an `.html` file to be stored as `application/xhtml+xml`).",
         "tags": [
           "Database"
         ],
@@ -1353,7 +1353,7 @@
                   },
                   "mime-type": {
                     "type": "string",
-                    "description": "MIME type (auto-detected if omitted)"
+                    "description": "MIME type to store the resource as. When omitted the server looks up the path's filename extension in `mime-types.xml`. Supply this only to override that mapping."
                   }
                 }
               }

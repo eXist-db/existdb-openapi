@@ -245,7 +245,15 @@ declare function db:store-resource($request as map(*)) {
     let $body := $request?body
     let $path := $body?path
     let $content := $body?content
-    let $mime-type := ($body?mime-type, "application/xml")[1]
+    (: Explicit mime from the client wins. When omitted we pass through to
+     : the 3-arg xmldb:store, which calls MimeTable.getContentTypeFor() on
+     : the resource name internally (see XMLDBStore.java lines 152-154 in
+     : eXist core) — so the server's mime-types.xml is the single source
+     : of truth. The pre-fix code defaulted to "application/xml", which
+     : routed .xq / .xqm / image content into the XML parser and either
+     : failed (XPST0003 / "Content is not allowed in prolog") or stored
+     : with the wrong content type. :)
+    let $mime-type := $body?mime-type
     return
         if (empty($path) or empty($content))
         then roaster:response(400, map { "error": "Missing required fields: path, content" })
@@ -258,7 +266,7 @@ declare function db:store-resource($request as map(*)) {
                     let $stored :=
                         if (util:binary-doc-available($path))
                         then xmldb:store-as-binary($collection, $resource, $content)
-                        else if ($mime-type)
+                        else if (exists($mime-type))
                         then xmldb:store($collection, $resource, $content, $mime-type)
                         else xmldb:store($collection, $resource, $content)
                     let $_ := if ($is-new) then db:fix-permissions($stored) else ()
@@ -270,22 +278,17 @@ declare function db:store-resource($request as map(*)) {
                         }
                     )
                 } catch * {
-                    (: Fall back to binary store for HTML that isn't well-formed :)
-                    if ($mime-type = "text/html")
-                    then
-                        let $stored := xmldb:store-as-binary($collection, $resource, $content)
-                        let $_ := if ($is-new) then db:fix-permissions($stored) else ()
-                        return roaster:response(
-                            if ($is-new) then 201 else 200,
-                            map {
-                                "stored": $stored,
-                                "runPath": db:get-run-path($stored)
-                            }
-                        )
-                    else
-                        roaster:response(400, map {
-                            "error": replace(replace($err:description, "^.*XMLDBException:", ""), "\[at.*\]$", "")
-                        })
+                    (: The store failed — most commonly because the content
+                     : wasn't well-formed XML and the target mime was an
+                     : XML-class type (application/xml, text/html,
+                     : application/xhtml+xml, …). Surface the parse error
+                     : as a 400 with the eXist message; clients who want
+                     : the raw bytes preserved can re-send with an
+                     : explicit `mime-type: application/octet-stream`,
+                     : which routes around the XML parser. :)
+                    roaster:response(400, map {
+                        "error": replace(replace($err:description, "^.*XMLDBException:", ""), "\[at.*\]$", "")
+                    })
                 }
 };
 
