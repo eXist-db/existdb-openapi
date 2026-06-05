@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +67,24 @@ public class Completions extends BasicFunction {
     private static final long COMPLETION_KIND_FUNCTION = 3;
     private static final long COMPLETION_KIND_VARIABLE = 6;
     private static final long COMPLETION_KIND_KEYWORD = 14;
+
+    /** LSP InsertTextFormat: 1 = PlainText, 2 = Snippet. */
+    private static final long INSERT_TEXT_FORMAT_PLAIN = 1;
+
+    /**
+     * sortText prefix bucket per namespace. Bias toward the XQuery defaults so
+     * unprefixed bare-mode input ranks {@code fn:*} above other namespaces.
+     * Items not listed bucket to "9".
+     */
+    private static final Map<String, String> NAMESPACE_BUCKET = Map.of(
+            "fn",    "0",
+            "local", "0",
+            "xs",    "1",
+            "math",  "2",
+            "map",   "3",
+            "array", "3",
+            "util",  "3"
+    );
 
     private static final String FS_COMPLETIONS_NAME = "completions";
     private static final String FS_COMPLETIONS_DESCRIPTION = """
@@ -209,6 +228,10 @@ public class Completions extends BasicFunction {
         return new CursorToken("", tail, CursorMode.BARE_PARTIAL);
     }
 
+    private static String sortBucket(final String prefix) {
+        return NAMESPACE_BUCKET.getOrDefault(prefix == null ? "" : prefix, "9");
+    }
+
     private static boolean isNCNameChar(final char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
                 || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
@@ -266,9 +289,19 @@ public class Completions extends BasicFunction {
         if (!seen.add(label)) {
             return;
         }
+        // In bare mode (user hasn't typed any prefix), an `fn:` item inserts
+        // without its prefix so accepting `cou` yields `count(...)`, not
+        // `fn:count(...)`. Other namespaces always need their prefix to
+        // resolve, so leave those alone.
+        final boolean dropFnPrefix = !cursor.isPrefixed() && "fn".equals(prefix);
+        final String insertText = dropFnPrefix
+                ? formatInsertText("", name.getLocalPart())
+                : formatInsertText(prefix, name.getLocalPart());
         final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
-        final String insertText = formatInsertText(prefix, name.getLocalPart());
-        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), documentation, insertText);
+        final String filterText = name.getLocalPart();
+        final String sortText = sortBucket(prefix) + "_" + name.getLocalPart() + "#" + sig.getArgumentCount();
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), documentation,
+                insertText, filterText, sortText, INSERT_TEXT_FORMAT_PLAIN);
     }
 
     private static boolean startsWithIgnoreCase(final String s, final String prefix) {
@@ -281,7 +314,10 @@ public class Completions extends BasicFunction {
      */
     private void addKeywords(final List<Sequence> completions) throws XPathException {
         for (final String keyword : XQUERY_KEYWORDS) {
-            addCompletion(completions, keyword, COMPLETION_KIND_KEYWORD, "keyword", "", keyword);
+            // Keywords share the top bucket with fn:* — both are the most
+            // common things users type without a prefix.
+            addCompletion(completions, keyword, COMPLETION_KIND_KEYWORD, "keyword", "",
+                    keyword, keyword, "0_" + keyword, INSERT_TEXT_FORMAT_PLAIN);
         }
     }
 
@@ -344,7 +380,11 @@ public class Completions extends BasicFunction {
         }
         final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
         final String insertText = formatInsertText(prefix, name.getLocalPart());
-        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), "", insertText);
+        // User-defined functions rank in the top bucket alongside fn:/keywords
+        // — they're the symbols most relevant to the user's own code.
+        final String sortText = "0_" + name.getLocalPart() + "#" + sig.getArgumentCount();
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), "",
+                insertText, name.getLocalPart(), sortText, INSERT_TEXT_FORMAT_PLAIN);
     }
 
     private void addVariable(final List<Sequence> completions, final VariableDeclaration varDecl)
@@ -355,21 +395,33 @@ public class Completions extends BasicFunction {
         final String detail = seqType != null
                 ? Type.getTypeName(seqType.getPrimaryType()) + seqType.getCardinality().toXQueryCardinalityString()
                 : "";
-        addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "", varName);
+        // filterText drops the leading $ so typing "x" (or "$x") matches "$x"
+        addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "",
+                varName, name.getLocalPart(), "0_" + name.getLocalPart(), INSERT_TEXT_FORMAT_PLAIN);
     }
 
     /**
      * Creates a completion item map and adds it to the list.
+     *
+     * @param filterText text the client matches typed input against (usually
+     *        the local-name, so bare {@code cou} matches {@code fn:count})
+     * @param sortText sort key used by the client to order items; bucketed by
+     *        namespace via {@link #sortBucket} so {@code fn:*} ranks first
+     * @param insertTextFormat 1=PlainText, 2=Snippet (LSP InsertTextFormat)
      */
     private void addCompletion(final List<Sequence> completions, final String label,
             final long kind, final String detail, final String documentation,
-            final String insertText) throws XPathException {
+            final String insertText, final String filterText, final String sortText,
+            final long insertTextFormat) throws XPathException {
         final MapType item = new MapType(this, context);
         item.add(new StringValue(this, "label"), new StringValue(this, label));
         item.add(new StringValue(this, "kind"), new IntegerValue(this, kind));
         item.add(new StringValue(this, "detail"), new StringValue(this, detail));
         item.add(new StringValue(this, "documentation"), new StringValue(this, documentation));
         item.add(new StringValue(this, "insertText"), new StringValue(this, insertText));
+        item.add(new StringValue(this, "filterText"), new StringValue(this, filterText));
+        item.add(new StringValue(this, "sortText"), new StringValue(this, sortText));
+        item.add(new StringValue(this, "insertTextFormat"), new IntegerValue(this, insertTextFormat));
         completions.add(item);
     }
 

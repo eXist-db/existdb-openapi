@@ -121,6 +121,73 @@ describe('/api/langservice', () => {
         });
       });
     });
+
+    describe('filterText / sortText / insertText shaping (issue #31)', () => {
+      function findItem(items, label) {
+        return items.find(i => i.label === label);
+      }
+
+      it('every item carries filterText, sortText, and insertTextFormat', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'count' }
+        }).then(response => {
+          response.body.forEach(item => {
+            expect(item).to.have.property('filterText').that.is.a('string');
+            expect(item).to.have.property('sortText').that.is.a('string');
+            expect(item).to.have.property('insertTextFormat');
+          });
+        });
+      });
+
+      it('bare-mode fn:* drops the prefix from insertText', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.label).to.eq('fn:count#1');
+          expect(fnCount.insertText).to.eq('count()');
+          expect(fnCount.filterText).to.eq('count');
+        });
+      });
+
+      it('prefixed-mode fn:* keeps the prefix the user typed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fn:cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.insertText).to.eq('fn:count()');
+        });
+      });
+
+      it('non-fn namespaces always keep their prefix in insertText', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'log' }
+        }).then(response => {
+          const utilLog = findItem(response.body, 'util:log#2');
+          expect(utilLog).to.exist;
+          expect(utilLog.insertText).to.match(/^util:log/);
+        });
+      });
+
+      it('sortText biases fn:* / keywords / user fns into bucket 0', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.sortText).to.match(/^0_/);
+          // other-namespace items bucket higher
+          const utilCount = response.body.find(i => i.label.startsWith('util:') && i.kind === 3);
+          if (utilCount) {
+            expect(utilCount.sortText.charAt(0)).to.not.eq('0');
+          }
+        });
+      });
+    });
   });
 
   describe('POST /api/langservice/hover', () => {
