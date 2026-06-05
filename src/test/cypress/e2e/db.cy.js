@@ -328,8 +328,7 @@ describe('/api/db', () => {
   });
 
   describe('POST /api/db/copy', () => {
-    it('copies a resource to a subcollection', () => {
-      // Create target subcollection
+    it('copies a resource into an existing collection (parent only, leaf preserved)', () => {
       cy.request({
         url: '/api/db/collection',
         method: 'POST',
@@ -341,12 +340,12 @@ describe('/api/db', () => {
         url: '/api/db/copy',
         method: 'POST',
         auth,
-        body: { source: `${testCollection}/test.xml`, target: `${testCollection}/sub` }
+        body: { source: `${testCollection}/test.xml`, parent: `${testCollection}/sub` }
       }).then(response => {
         expect(response.body).to.have.property('copied');
+        expect(response.body.to).to.equal(`${testCollection}/sub/test.xml`);
       });
 
-      // Verify copy exists
       cy.request({
         url: `/api/db/resource?path=${testCollection}/sub/test.xml`,
         auth
@@ -354,32 +353,398 @@ describe('/api/db', () => {
         expect(response.body.content).to.include('<msg>hello</msg>');
       });
     });
+
+    it('copies a resource into an existing collection with a new name (parent + name)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/copy-rename` }
+      });
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: {
+          source: `${testCollection}/test.xml`,
+          parent: `${testCollection}/copy-rename`,
+          name: 'test-renamed.xml'
+        }
+      }).then(response => {
+        expect(response.body).to.have.property('copied');
+        expect(response.body.to).to.equal(`${testCollection}/copy-rename/test-renamed.xml`);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/copy-rename/test-renamed.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<msg>hello</msg>');
+      });
+    });
+
+    it('duplicates a resource in place via newName (shortcut)', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml`, newName: 'test-dup.xml' }
+      }).then(response => {
+        expect(response.body).to.have.property('copied');
+        expect(response.body.to).to.equal(`${testCollection}/test-dup.xml`);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/test-dup.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<msg>hello</msg>');
+      });
+    });
+
+    it('duplicates a collection in place via newName (shortcut)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-to-dup` }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/coll-to-dup/child.xml`, content: '<child>hi</child>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/coll-to-dup`, newName: 'coll-duplicated' }
+      }).then(response => {
+        expect(response.body).to.have.property('copied');
+        expect(response.body.to).to.equal(`${testCollection}/coll-duplicated`);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/coll-duplicated/child.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<child>hi</child>');
+      });
+    });
+
+    it('rejects copy when both parent and newName are missing', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml` },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/parent or newName/i);
+      });
+    });
+
+    it('rejects copy when parent does not exist', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml`, parent: `${testCollection}/no-such-collection` },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/does not exist/i);
+      });
+    });
+
+    it('rejects copy when destination matches source (no-op collision)', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml`, parent: testCollection },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/matches source|new name/i);
+      });
+    });
   });
 
   describe('POST /api/db/move', () => {
-    it('moves a resource', () => {
+    it('moves a resource into an existing collection (parent only, leaf preserved)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/dest-coll` }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/in-dest.xml`, content: '<msg>moveme</msg>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/in-dest.xml`, parent: `${testCollection}/dest-coll` }
+      }).then(response => {
+        expect(response.body).to.have.property('moved');
+        expect(response.body.to).to.equal(`${testCollection}/dest-coll/in-dest.xml`);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/dest-coll/in-dest.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<msg>moveme</msg>');
+      });
+    });
+
+    it('moves a resource with rename (parent + name)', () => {
       cy.request({
         url: '/api/db/collection',
         method: 'POST',
         auth,
         body: { path: `${testCollection}/moved` }
       });
-
       cy.request({
         url: '/api/db/move',
         method: 'POST',
         auth,
-        body: { source: `${testCollection}/sub/test.xml`, target: `${testCollection}/moved/test.xml` }
+        body: {
+          source: `${testCollection}/sub/test.xml`,
+          parent: `${testCollection}/moved`,
+          name: 'arrived.xml'
+        }
       }).then(response => {
         expect(response.body).to.have.property('moved');
+        expect(response.body.to).to.equal(`${testCollection}/moved/arrived.xml`);
       });
-
-      // Verify moved
       cy.request({
-        url: `/api/db/resource?path=${testCollection}/moved/test.xml`,
+        url: `/api/db/resource?path=${testCollection}/moved/arrived.xml`,
         auth
       }).then(response => {
         expect(response.body.content).to.include('<msg>hello</msg>');
+      });
+    });
+
+    it('renames a resource in place via newName (shortcut)', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/to-rename.xml`, content: '<msg>rename me</msg>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/to-rename.xml`, newName: 'renamed.xml' }
+      }).then(response => {
+        expect(response.body).to.have.property('moved');
+        expect(response.body.to).to.equal(`${testCollection}/renamed.xml`);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/renamed.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<msg>rename me</msg>');
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/to-rename.xml`,
+        auth,
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+      });
+    });
+
+    it('renames a collection in place via newName (shortcut)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-old` }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/coll-old`, newName: 'coll-new' }
+      }).then(response => {
+        expect(response.body).to.have.property('moved');
+        expect(response.body.to).to.equal(`${testCollection}/coll-new`);
+      });
+    });
+
+    it('rejects move when both parent and newName are missing', () => {
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml` },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/parent or newName/i);
+      });
+    });
+
+    it('rejects move when parent does not exist', () => {
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/test.xml`, parent: `${testCollection}/no-such-collection` },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(400);
+        expect(response.body.error).to.match(/does not exist/i);
+      });
+    });
+
+    // Closes #37 — was the original silent-data-loss case.
+    it('refuses to overwrite an existing destination on move (409 Conflict, source preserved)', () => {
+      // Set up: a source resource and a different file at the proposed destination
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/src-overwrite.xml`, content: '<src/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/dest-blocking.xml`, content: '<dest>existing</dest>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/src-overwrite.xml`, parent: testCollection, name: 'dest-blocking.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      // Source must still be there.
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/src-overwrite.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<src/>');
+      });
+      // Destination must be unchanged (NOT overwritten with source).
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/dest-blocking.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<dest>existing</dest>');
+      });
+    });
+
+    it('refuses to overwrite an existing destination collection on move (409 Conflict)', () => {
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-src-overwrite` }
+      });
+      cy.request({
+        url: '/api/db/collection',
+        method: 'POST',
+        auth,
+        body: { path: `${testCollection}/coll-dest-blocking` }
+      });
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/coll-src-overwrite`, parent: testCollection, name: 'coll-dest-blocking' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      // Both collections still there.
+      cy.request({
+        url: `/api/db?path=${testCollection}/coll-src-overwrite`,
+        auth
+      }).then(response => {
+        expect(response.body.type).to.equal('collection');
+      });
+      cy.request({
+        url: `/api/db?path=${testCollection}/coll-dest-blocking`,
+        auth
+      }).then(response => {
+        expect(response.body.type).to.equal('collection');
+      });
+    });
+
+    it('rejects move when source does not exist (404)', () => {
+      cy.request({
+        url: '/api/db/move',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/no-such-source.xml`, parent: testCollection, name: 'irrelevant.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+        expect(response.body.error).to.match(/not found/i);
+      });
+    });
+  });
+
+  describe('POST /api/db/copy — safety', () => {
+    it('refuses to overwrite an existing destination on copy (409 Conflict, both preserved)', () => {
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/copy-src.xml`, content: '<src/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/resource',
+        method: 'PUT',
+        auth,
+        body: { path: `${testCollection}/copy-dest-blocking.xml`, content: '<dest/>', 'mime-type': 'application/xml' }
+      });
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/copy-src.xml`, parent: testCollection, name: 'copy-dest-blocking.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(409);
+        expect(response.body.error).to.match(/already exists/i);
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/copy-src.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<src/>');
+      });
+      cy.request({
+        url: `/api/db/resource?path=${testCollection}/copy-dest-blocking.xml`,
+        auth
+      }).then(response => {
+        expect(response.body.content).to.include('<dest/>');
+      });
+    });
+
+    it('rejects copy when source does not exist (404)', () => {
+      cy.request({
+        url: '/api/db/copy',
+        method: 'POST',
+        auth,
+        body: { source: `${testCollection}/no-such-source.xml`, parent: testCollection, name: 'x.xml' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.equal(404);
+        expect(response.body.error).to.match(/not found/i);
       });
     });
   });

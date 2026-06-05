@@ -371,66 +371,224 @@ declare function db:remove-collection($request as map(*)) {
  : Move resource or collection.
  : POST /api/db/move
  :)
+(:~
+ : Move or rename a resource or collection.
+ : POST /api/db/move
+ :
+ : Two call shapes (mirrors eXist's XML-RPC moveResource/moveCollection
+ : signature — explicit destination parent collection + optional new
+ : leaf name):
+ :
+ :   1. {source, parent, name?}  — move `source` into the existing
+ :      collection `parent`. If `name` is given, the moved item takes
+ :      that leaf name; otherwise it keeps source's leaf. Use this for
+ :      "drop into folder" (parent only), "move across collections with
+ :      rename" (parent + name), or in-place rename
+ :      (parent = source's parent + name = new leaf).
+ :   2. {source, newName}        — friendlier shortcut for in-place
+ :      rename. Equivalent to (1) with parent = source's own parent.
+ :
+ : Either `parent` or `newName` is required. `parent`, if supplied, must
+ : refer to an existing collection.
+ :)
+declare %private function db:exists-at($path as xs:string?) as xs:boolean {
+    exists($path)
+    and string-length($path) gt 0
+    and (
+        xmldb:collection-available($path)
+        or doc-available($path)
+        or util:binary-doc-available($path)
+    )
+};
+
 declare function db:move($request as map(*)) {
     let $body := $request?body
     let $source := $body?source
-    let $target := $body?target
+    let $parent := $body?parent
+    let $name := $body?name
     let $newName := $body?newName
+    let $src-parent := if (exists($source)) then replace($source, "/[^/]+$", "") else ()
+    let $src-leaf := if (exists($source)) then replace($source, "^.*/", "") else ()
+    let $dest-parent := ($parent, $src-parent)[1]
+    let $dest-name := ($name, $newName, $src-leaf)[1]
+    let $dest-path :=
+        if (exists($dest-parent) and exists($dest-name))
+        then $dest-parent || "/" || $dest-name
+        else ()
     return
-        if (empty($source))
-        then roaster:response(400, map { "error": "Missing required field: source" })
-        else if (exists($newName)) then
-            (: Rename in place :)
-            let $src-collection := replace($source, "/[^/]+$", "")
-            let $src-resource := replace($source, "^.*/", "")
-            return
-                if (xmldb:collection-available($source)) then
-                    (xmldb:rename($source, $newName),
-                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
-                else
-                    (xmldb:rename($src-collection, $src-resource, $newName),
-                     map { "renamed": $source, "to": $src-collection || "/" || $newName })
-        else if (empty($target)) then
-            roaster:response(400, map { "error": "Missing required field: target or newName" })
-        else if (xmldb:collection-available($source)) then
-            let $_ := xmldb:move($source, $target)
-            return map { "moved": $source, "to": $target }
+        if (empty($source)) then
+            roaster:response(400, map { "error": "Missing required field: source" })
+        else if (not(db:exists-at($source))) then
+            roaster:response(404, map { "error": "Source not found: " || $source })
+        else if (empty($parent) and empty($newName)) then
+            roaster:response(400, map { "error": "Missing required field: parent or newName" })
+        else if (exists($parent) and not(xmldb:collection-available($parent))) then
+            roaster:response(400, map {
+                "error": "Destination parent collection does not exist: " || $parent
+            })
+        else if (
+            $dest-path ne $source
+            and (
+                xmldb:collection-available($dest-path)
+                or doc-available($dest-path)
+                or util:binary-doc-available($dest-path)
+            )
+        ) then
+            (: Refuse to overwrite an existing destination. eXist's
+             : xmldb:move silently replaces whatever is at the target,
+             : which can delete unrelated data — surface this as a 409
+             : Conflict so the client can confirm before destroying it.
+             : Closes the silent-overwrite branch of #37. :)
+            roaster:response(409, map {
+                "error": "Destination already exists: " || $dest-path ||
+                         ". Remove it first or choose a different name."
+            })
         else
-            let $src-collection := replace($source, "/[^/]+$", "")
-            let $src-resource := replace($source, "^.*/", "")
-            let $tgt-collection :=
-                if (contains($target, "/")) then replace($target, "/[^/]+$", "")
-                else $src-collection
-            let $tgt-resource :=
-                if (contains($target, "/")) then replace($target, "^.*/", "")
-                else $target
-            let $_ := xmldb:move($src-collection, $tgt-collection, $src-resource)
-            let $_ := if ($tgt-resource ne $src-resource)
-                      then xmldb:rename($tgt-collection, $src-resource, $tgt-resource)
-                      else ()
-            return map { "moved": $source, "to": $tgt-collection || "/" || $tgt-resource }
+            (: Wrap the broker calls in a try/catch so a mid-operation
+             : xmldb:move failure surfaces as a clean 500 with a message
+             : — not an unhandled exception that obscures the state of
+             : source vs destination. :)
+            try {
+                if (xmldb:collection-available($source)) then
+                    let $_ := if ($dest-parent ne $src-parent)
+                              then xmldb:move($source, $dest-parent)
+                              else ()
+                    let $intermediate :=
+                        if ($dest-parent ne $src-parent)
+                        then $dest-parent || "/" || $src-leaf
+                        else $source
+                    let $_ := if ($dest-name ne $src-leaf)
+                              then xmldb:rename($intermediate, $dest-name)
+                              else ()
+                    return map { "moved": $source, "to": $dest-path }
+                else
+                    let $_ := if ($dest-parent ne $src-parent)
+                              then xmldb:move($src-parent, $dest-parent, $src-leaf)
+                              else ()
+                    let $_ := if ($dest-name ne $src-leaf)
+                              then xmldb:rename($dest-parent, $src-leaf, $dest-name)
+                              else ()
+                    return map { "moved": $source, "to": $dest-path }
+            } catch * {
+                roaster:response(500, map {
+                    "error": "Move failed mid-operation: " || $err:description,
+                    "source": $source,
+                    "attempted-destination": $dest-path,
+                    "note": "Inspect source and destination paths — partial state may exist."
+                })
+            }
 };
 
 (:~
- : Copy resource or collection.
+ : Copy a resource or collection.
  : POST /api/db/copy
+ :
+ : Two call shapes (mirrors eXist's XML-RPC copyResource/copyCollection
+ : signature — explicit destination parent collection + optional new
+ : leaf name):
+ :
+ :   1. {source, parent, name?}  — copy `source` into the existing
+ :      collection `parent`. If `name` is given, the copy takes that
+ :      leaf name; otherwise it keeps source's leaf. Use this for
+ :      "drop into folder" (parent only), "copy across collections with
+ :      rename" (parent + name), or "duplicate within source's own
+ :      collection" (parent = source's parent + name = new leaf).
+ :   2. {source, newName}        — friendlier shortcut for duplicate-in-
+ :      place. Equivalent to (1) with parent = source's own parent.
+ :
+ : Either `parent` or `newName` is required. `parent`, if supplied, must
+ : refer to an existing collection.
+ :
+ : For collections, xmldb:copy-collection takes a target *parent*
+ : collection (no rename arg) and refuses to copy into the source's own
+ : parent (it would name-collide). When the destination would collide
+ : with the source — same parent, same leaf — we use a disposable
+ : staging collection: copy in, rename inside, move back, remove stager.
  :)
 declare function db:copy($request as map(*)) {
     let $body := $request?body
     let $source := $body?source
-    let $target := $body?target
+    let $parent := $body?parent
+    let $name := $body?name
+    let $newName := $body?newName
+    let $src-parent := replace($source, "/[^/]+$", "")
+    let $src-leaf := replace($source, "^.*/", "")
+    let $source-exists :=
+        xmldb:collection-available($source)
+        or doc-available($source)
+        or util:binary-doc-available($source)
     return
-        if (empty($source) or empty($target))
-        then map { "error": "Missing required fields: source, target" }
-        else if (xmldb:collection-available($source))
-        then
-            let $_ := xmldb:copy-collection($source, $target)
-            return map { "copied": $source, "to": $target }
+        if (empty($source)) then
+            roaster:response(400, map { "error": "Missing required field: source" })
+        else if (not($source-exists)) then
+            roaster:response(404, map { "error": "Source not found: " || $source })
+        else if (empty($parent) and empty($newName)) then
+            roaster:response(400, map { "error": "Missing required field: parent or newName" })
+        else if (exists($parent) and not(xmldb:collection-available($parent))) then
+            roaster:response(400, map {
+                "error": "Destination parent collection does not exist: " || $parent
+            })
         else
-            let $src-collection := replace($source, "/[^/]+$", "")
-            let $src-resource := replace($source, "^.*/", "")
-            let $_ := xmldb:copy-resource($src-collection, $src-resource, $target, $src-resource)
-            return map { "copied": $source, "to": $target }
+            let $dest-parent := if (exists($parent)) then $parent else $src-parent
+            let $dest-name := (
+                $name[exists($name)],
+                $newName[exists($newName)],
+                $src-leaf
+            )[1]
+            let $dest-path := $dest-parent || "/" || $dest-name
+            let $collides := $dest-parent eq $src-parent and $dest-name eq $src-leaf
+            let $dest-exists :=
+                not($collides)
+                and (
+                    xmldb:collection-available($dest-path)
+                    or doc-available($dest-path)
+                    or util:binary-doc-available($dest-path)
+                )
+            return
+                if ($collides) then
+                    roaster:response(400, map {
+                        "error": "Destination matches source — supply a new name to duplicate in place"
+                    })
+                else if ($dest-exists) then
+                    (: Refuse to overwrite an existing destination. eXist's
+                     : xmldb:copy-collection / xmldb:copy-resource silently
+                     : merge or replace, which can destroy unrelated data —
+                     : surface this as a 409 Conflict so the client can
+                     : confirm before proceeding. :)
+                    roaster:response(409, map {
+                        "error": "Destination already exists: " || $dest-path ||
+                                 ". Remove it first or choose a different name."
+                    })
+                else
+                    try {
+                        if (xmldb:collection-available($source)) then
+                            if ($dest-parent ne $src-parent) then
+                                let $_ := xmldb:copy-collection($source, $dest-parent)
+                                let $_ := if ($dest-name ne $src-leaf)
+                                          then xmldb:rename($dest-parent || "/" || $src-leaf, $dest-name)
+                                          else ()
+                                return map { "copied": $source, "to": $dest-path }
+                            else
+                                (: Same-parent collection copy: stage → rename → move back. :)
+                                let $stage-name := "__copy-stage-" || util:uuid()
+                                let $stage := $src-parent || "/" || $stage-name
+                                let $_ := xmldb:create-collection($src-parent, $stage-name)
+                                let $_ := xmldb:copy-collection($source, $stage)
+                                let $_ := xmldb:rename($stage || "/" || $src-leaf, $dest-name)
+                                let $_ := xmldb:move($stage || "/" || $dest-name, $src-parent)
+                                let $_ := xmldb:remove($stage)
+                                return map { "copied": $source, "to": $dest-path }
+                        else
+                            let $_ := xmldb:copy-resource($src-parent, $src-leaf, $dest-parent, $dest-name)
+                            return map { "copied": $source, "to": $dest-path }
+                    } catch * {
+                        roaster:response(500, map {
+                            "error": "Copy failed mid-operation: " || $err:description,
+                            "source": $source,
+                            "attempted-destination": $dest-path,
+                            "note": "Inspect destination path — partial state may exist."
+                        })
+                    }
 };
 
 (:~
