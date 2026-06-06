@@ -3518,12 +3518,21 @@
               "type": "integer",
               "default": 20
             },
-            "description": "Maximum number of results to return"
+            "description": "Maximum number of results to return (page size)"
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0
+            },
+            "description": "Zero-based index of the first result to return (for paging)"
           }
         ],
         "responses": {
           "200": {
-            "description": "Search results with total count and match snippets",
+            "description": "Search results with total count, relevance scores, and KWIC-highlighted snippets",
             "content": {
               "application/json": {
                 "schema": {
@@ -3537,44 +3546,75 @@
                       "type": "integer",
                       "description": "Total number of matching results"
                     },
+                    "offset": {
+                      "type": "integer",
+                      "description": "Zero-based index of the first result in this page"
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "description": "Page size that was applied"
+                    },
                     "results": {
                       "type": "array",
+                      "description": "Results ordered by descending relevance score",
                       "items": {
                         "type": "object",
                         "properties": {
+                          "uri": {
+                            "type": "string",
+                            "description": "Canonical DB path of the matching document (open over exist:)"
+                          },
+                          "path": {
+                            "type": "string",
+                            "description": "DB path of the matching document (alias of uri)"
+                          },
                           "title": {
                             "type": "string"
-                          },
-                          "snippet": {
-                            "type": "string",
-                            "description": "Text snippet with matches"
                           },
                           "app": {
                             "type": "string",
                             "description": "Source app abbreviation"
                           },
-                          "path": {
-                            "type": "string",
-                            "description": "DB path of the matching document"
-                          },
                           "url": {
                             "type": "string",
                             "description": "HTTP-accessible URL"
+                          },
+                          "score": {
+                            "type": "number",
+                            "description": "Lucene relevance score (higher is more relevant)"
+                          },
+                          "snippet": {
+                            "type": "string",
+                            "description": "First KWIC fragment as a well-formed XML string: a single <span> root with matched terms in <mark>. Parse with fn:parse-xml (no parse-xml-fragment needed); also valid HTML for innerHTML."
+                          },
+                          "highlights": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "KWIC fragments centered on a match. Each is a well-formed XML string (a single <span> root with matched terms in <mark>), parseable with fn:parse-xml."
                           }
                         }
                       }
                     }
                   },
                   "example": {
-                    "query": "XQuery",
-                    "total": 42,
+                    "query": "url rewriting",
+                    "total": 22,
+                    "offset": 0,
+                    "limit": 20,
                     "results": [
                       {
-                        "title": "Introduction to XQuery",
-                        "snippet": "...XQuery is a functional language...",
+                        "uri": "/db/apps/doc/data/urlrewrite/urlrewrite.xml",
+                        "path": "/db/apps/doc/data/urlrewrite/urlrewrite.xml",
+                        "title": "URL Rewriting",
                         "app": "doc",
-                        "path": "/db/apps/doc/data/intro.xml",
-                        "url": "/exist/apps/doc/data/intro.xml"
+                        "url": "/exist/apps/doc/data/urlrewrite/urlrewrite.xml",
+                        "score": 8.42,
+                        "snippet": "<span>...eXist-db's <mark>URL</mark> <mark>rewriting</mark> lets you map...</span>",
+                        "highlights": [
+                          "<span>...eXist-db's <mark>URL</mark> <mark>rewriting</mark> lets you map...</span>"
+                        ]
                       }
                     ]
                   }
