@@ -1284,11 +1284,47 @@
               "type": "string"
             },
             "description": "Full DB path of the resource"
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["xml", "xhtml", "html5", "text", "json", "adaptive"] },
+            "description": "Serialization method for XML resources. Omit to use the instance (conf.xml) default. Ignored for binary resources."
+          },
+          {
+            "name": "indent",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] },
+            "description": "Pretty-print the XML output. Omit to use the conf.xml default."
+          },
+          {
+            "name": "omit-xml-declaration",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] },
+            "description": "Omit the <?xml ...?> declaration. Omit to use the conf.xml default."
+          },
+          {
+            "name": "encoding",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Output character encoding (e.g. UTF-8). Omit to use the conf.xml default."
+          },
+          {
+            "name": "media-type",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Serialization media-type. Omit to use the conf.xml default."
+          },
+          {
+            "name": "item-separator",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Separator string between serialized items. Omit to use the conf.xml default."
           }
         ],
         "responses": {
           "200": {
-            "description": "Resource content with metadata",
+            "description": "Resource content with metadata. XML resources are serialized using any serialization parameters supplied (method/indent/omit-xml-declaration/encoding/media-type/item-separator); omitted parameters fall through to the conf.xml serializer defaults, so a request with no serialization parameters is byte-for-byte identical to before this feature. NOTE: eXist's `expand-xincludes` is not yet supported here — as of eXist 7.0.0-beta3 it cannot be honoured for node-to-string serialization, so it is intentionally omitted rather than silently expanding (which would risk destroying <xi:include> on a subsequent save).",
             "content": {
               "application/json": {
                 "schema": {

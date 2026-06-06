@@ -206,12 +206,60 @@ declare function db:get-resource($request as map(*)) {
             }
         else
             let $doc := doc($path)
+            let $ser := db:serialization-params($request?parameters)
             return map {
                 "path": $path,
                 "binary": false(),
-                "content": serialize($doc),
+                "content":
+                    if (exists($ser))
+                    then serialize($doc, $ser)
+                    else serialize($doc),
                 "mime-type": xmldb:get-mime-type(xs:anyURI($path))
             }
+};
+
+(:~
+ : Build an output:serialization-parameters element from the W3C serialization
+ : parameters present in the request, or the empty sequence when none are given
+ : (so the caller falls back to a bare serialize() = the conf.xml serializer
+ : defaults; today's behaviour, unchanged).
+ :
+ : Only keys the caller explicitly supplied are emitted, so omitted parameters
+ : keep deferring to conf.xml. Boolean params accept yes/no (the cursor
+ : query-results vocabulary) and tolerate true/false.
+ :
+ : NOTE: eXist's `expand-xincludes` serializer extension is deliberately NOT
+ : handled here. As of eXist 7.0.0-beta3 it cannot be honoured for node->string
+ : serialization in XQuery (fn:serialize always expands; util:serialize was
+ : removed; the REST layer hard-codes expand-xincludes=yes). Advertising it
+ : while silently expanding would give clients a false guarantee and risk
+ : destroying <xi:include> on save. Tracked separately pending an eXist-core
+ : fix. See /tmp/2026-06-06-expand-xincludes-finding.md.
+ :)
+declare %private function db:serialization-params($params as map(*)) as element(output:serialization-parameters)? {
+    let $children := (
+        if (exists($params?method))
+            then <output:method>{$params?method}</output:method> else (),
+        if (exists($params?indent))
+            then <output:indent>{db:yes-no($params?indent)}</output:indent> else (),
+        if (exists($params?("omit-xml-declaration")))
+            then <output:omit-xml-declaration>{db:yes-no($params?("omit-xml-declaration"))}</output:omit-xml-declaration> else (),
+        if (exists($params?encoding))
+            then <output:encoding>{$params?encoding}</output:encoding> else (),
+        if (exists($params?("media-type")))
+            then <output:media-type>{$params?("media-type")}</output:media-type> else (),
+        if (exists($params?("item-separator")))
+            then <output:item-separator>{$params?("item-separator")}</output:item-separator> else ()
+    )
+    return
+        if (empty($children))
+        then ()
+        else <output:serialization-parameters>{$children}</output:serialization-parameters>
+};
+
+(:~ Normalise a boolean serialization value to the W3C "yes"/"no" form. :)
+declare %private function db:yes-no($value as xs:string) as xs:string {
+    if (lower-case($value) = ("yes", "true", "1")) then "yes" else "no"
 };
 
 (:~
