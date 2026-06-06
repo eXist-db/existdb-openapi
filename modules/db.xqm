@@ -257,6 +257,8 @@ declare function db:store-resource($request as map(*)) {
     return
         if (empty($path) or empty($content))
         then roaster:response(400, map { "error": "Missing required fields: path, content" })
+        else if (not(db:under-db($path)))
+        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
         else
             let $collection := replace($path, "/[^/]+$", "")
             let $resource := replace($path, "^.*/", "")
@@ -302,6 +304,16 @@ declare %private function db:is-protected($path as xs:string) as xs:boolean {
 };
 
 (:~
+ : Guard: a write target must live in the database — i.e. be "/db" itself or a
+ : descendant ("/db/…"). Rejects sibling-looking paths such as "/dbfoo" that
+ : start with "/db" textually but are not under the /db root. Interim band-aid
+ : at the API boundary pending the eXist-core resource-naming work.
+ :)
+declare %private function db:under-db($path as xs:string?) as xs:boolean {
+    exists($path) and ($path = "/db" or starts-with($path, "/db/"))
+};
+
+(:~
  : Remove resource.
  : DELETE /api/db/resource?path=...
  :)
@@ -310,6 +322,8 @@ declare function db:remove-resource($request as map(*)) {
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required parameter: path" })
+        else if (not(db:under-db($path)))
+        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
         else if (db:is-protected($path))
         then roaster:response(403, map { "error": "Cannot delete protected path: " || $path })
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
@@ -330,6 +344,8 @@ declare function db:create-collection($request as map(*)) {
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required field: path" })
+        else if (not(db:under-db($path)))
+        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
         else
             let $parent := replace($path, "/[^/]+$", "")
             let $name := replace($path, "^.*/", "")
@@ -351,6 +367,8 @@ declare function db:remove-collection($request as map(*)) {
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required parameter: path" })
+        else if (not(db:under-db($path)))
+        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
         else if (db:is-protected($path))
         then roaster:response(403, map { "error": "Cannot delete protected path: " || $path })
         else if (not(xmldb:collection-available($path)))
@@ -418,10 +436,14 @@ declare function db:move($request as map(*)) {
     return
         if (empty($source)) then
             roaster:response(400, map { "error": "Missing required field: source" })
+        else if (not(db:under-db($source))) then
+            roaster:response(400, map { "error": "Path must be under /db: " || $source })
         else if (not(db:exists-at($source))) then
             roaster:response(404, map { "error": "Source not found: " || $source })
         else if (empty($parent) and empty($newName)) then
             roaster:response(400, map { "error": "Missing required field: parent or newName" })
+        else if (exists($parent) and not(db:under-db($parent))) then
+            roaster:response(400, map { "error": "Path must be under /db: " || $parent })
         else if (exists($parent) and not(xmldb:collection-available($parent))) then
             roaster:response(400, map {
                 "error": "Destination parent collection does not exist: " || $parent
@@ -520,10 +542,14 @@ declare function db:copy($request as map(*)) {
     return
         if (empty($source)) then
             roaster:response(400, map { "error": "Missing required field: source" })
+        else if (not(db:under-db($source))) then
+            roaster:response(400, map { "error": "Path must be under /db: " || $source })
         else if (not($source-exists)) then
             roaster:response(404, map { "error": "Source not found: " || $source })
         else if (empty($parent) and empty($newName)) then
             roaster:response(400, map { "error": "Missing required field: parent or newName" })
+        else if (exists($parent) and not(db:under-db($parent))) then
+            roaster:response(400, map { "error": "Path must be under /db: " || $parent })
         else if (exists($parent) and not(xmldb:collection-available($parent))) then
             roaster:response(400, map {
                 "error": "Destination parent collection does not exist: " || $parent
