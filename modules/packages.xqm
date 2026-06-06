@@ -22,6 +22,13 @@ declare option output:method "json";
 declare option output:media-type "application/json";
 
 (:~
+ : Default public package registry. Its /find endpoint is passed to
+ : repo:install-and-deploy* so transitive dependencies are resolved from the
+ : registry during install.
+ :)
+declare variable $packages:default-registry := "https://exist-db.org/exist/apps/public-repo";
+
+(:~
  : Safely read and parse a package descriptor resource.
  : Returns the parsed document-node or empty sequence on failure.
  :)
@@ -253,15 +260,45 @@ declare function packages:install($request as map(*)) {
 };
 
 (:~
+ : Read the package name (expath:package/@name) from a stored .xar without
+ : deploying it, by unzipping just its expath-pkg.xml descriptor.
+ :)
+declare %private function packages:xar-package-name($stored as xs:string) as xs:string? {
+    try {
+        let $meta :=
+            compression:unzip(
+                util:binary-doc($stored),
+                function($path as xs:anyURI, $type as xs:string, $param as item()*) as xs:boolean {
+                    $path = "expath-pkg.xml"
+                },
+                (),
+                function($path as xs:anyURI, $type as xs:string, $data as item()?, $param as item()*) as item()? {
+                    $data
+                },
+                ()
+            )
+        return $meta//expath:package/@name/string()[. ne ""]
+    } catch * { () }
+};
+
+(:~
  : Install a locally uploaded .xar from its raw bytes (multipart upload).
- : repo:install-and-deploy-from-db is idempotent — re-uploading a new build of an
- : already-installed package replaces it — so no explicit pre-removal is needed.
+ : Any previously installed copy of the same package is undeployed and removed
+ : first (matching xst, the dashboard, and atom-editor-support), then the upload
+ : is installed with the public registry's /find endpoint so transitive
+ : dependencies are resolved.
  :)
 declare %private function packages:install-from-upload($file as map(*)) {
     try {
         let $filename := ($file?name[. ne ""], "upload.xar")[1]
         let $stored := xmldb:store("/db/system/repo", $filename, $file?data, "application/zip")
-        let $status := repo:install-and-deploy-from-db($stored)
+        (: clean undeploy/remove of any previously installed copy before re-installing :)
+        let $package-name := packages:xar-package-name($stored)
+        let $pre-removal :=
+            if (exists($package-name) and $package-name = repo:list())
+            then try { repo:undeploy($package-name), repo:remove($package-name) } catch * { () }
+            else ()
+        let $status := repo:install-and-deploy-from-db($stored, $packages:default-registry || "/find")
         let $target := $status/@target/string()
         (: tidy the temp .xar so it isn't left in /db/system/repo :)
         let $cleanup := try { xmldb:remove("/db/system/repo", $filename) } catch * { () }
