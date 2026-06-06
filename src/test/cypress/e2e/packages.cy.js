@@ -89,7 +89,7 @@ describe('/api/packages', () => {
   });
 
   describe('POST /api/packages/install', () => {
-    it('installs a package from the public repo', () => {
+    it('installs a package from the public repo (JSON registry path)', () => {
       cy.request({
         url: '/api/packages/install',
         method: 'POST',
@@ -102,6 +102,68 @@ describe('/api/packages', () => {
       }).then(response => {
         expect(response.body).to.have.property('success', true);
         expect(response.body.result).to.have.property('target');
+      });
+    });
+
+    // Multipart .xar upload. Driven via cy.exec + curl rather than cy.request:
+    // Cypress mangles raw binary bodies (Buffer↔JSON serialization), so a
+    // real multipart file upload can't go through cy.request reliably. curl
+    // exercises the actual endpoint with correct bytes.
+    describe('multipart .xar upload', () => {
+      const fixture = 'src/test/cypress/fixtures/test-multipart.xar';
+      const pkgName = 'http://example.com/test-multipart';
+
+      const uploadCmd = () =>
+        `curl -s -u admin: -X POST ` +
+        `-F "file=@${fixture};type=application/octet-stream" ` +
+        `"${Cypress.config('baseUrl')}/api/packages/install"`;
+
+      after(() => {
+        cy.request({
+          url: '/api/packages/test-multipart', method: 'DELETE', auth,
+          failOnStatusCode: false
+        });
+      });
+
+      it('installs and deploys an uploaded .xar', () => {
+        cy.exec(uploadCmd()).then(result => {
+          const body = JSON.parse(result.stdout);
+          expect(body.success).to.eq(true);
+          expect(body.result.name).to.eq(pkgName);
+          expect(body.result.version).to.eq('1.0.0');
+          expect(body.result.target).to.match(/test-multipart$/);
+        });
+      });
+
+      it('appears in GET /api/packages after upload', () => {
+        cy.request({ url: '/api/packages', auth }).then(response => {
+          expect(JSON.stringify(response.body)).to.contain('test-multipart');
+        });
+      });
+
+      it('re-uploading a build replaces it idempotently', () => {
+        cy.exec(uploadCmd()).then(result => {
+          expect(JSON.parse(result.stdout).success).to.eq(true);
+        });
+      });
+
+      it('does not leave the temp .xar in /db/system/repo', () => {
+        cy.request({
+          url: '/exist/rest/db/system/repo/test-multipart.xar',
+          auth, failOnStatusCode: false
+        }).then(response => {
+          expect(response.status).to.eq(404);
+        });
+      });
+    });
+
+    it('still rejects a JSON body missing name/url', () => {
+      cy.request({
+        url: '/api/packages/install', method: 'POST', auth,
+        body: {}, failOnStatusCode: false
+      }).then(response => {
+        expect(response.body).to.have.property('error');
+        expect(response.body.error).to.match(/name, url/);
       });
     });
   });

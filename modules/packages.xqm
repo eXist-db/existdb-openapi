@@ -242,6 +242,56 @@ declare function packages:get($request as map(*)) {
  :)
 declare function packages:install($request as map(*)) {
     let $body := $request?body
+    (: A multipart/form-data upload arrives as $body?file = map { name, data, size }
+       (Roaster's form-data binary shape). When a file part is present, install the
+       uploaded .xar directly; otherwise fall through to the JSON registry path. :)
+    let $file := $body?file
+    return
+        if ($file instance of map(*) and exists($file?data))
+        then packages:install-from-upload($file)
+        else packages:install-from-registry($body)
+};
+
+(:~
+ : Install a locally uploaded .xar from its raw bytes (multipart upload).
+ : repo:install-and-deploy-from-db is idempotent — re-uploading a new build of an
+ : already-installed package replaces it — so no explicit pre-removal is needed.
+ :)
+declare %private function packages:install-from-upload($file as map(*)) {
+    try {
+        let $filename := ($file?name[. ne ""], "upload.xar")[1]
+        let $stored := xmldb:store("/db/system/repo", $filename, $file?data, "application/zip")
+        let $status := repo:install-and-deploy-from-db($stored)
+        let $target := $status/@target/string()
+        (: tidy the temp .xar so it isn't left in /db/system/repo :)
+        let $cleanup := try { xmldb:remove("/db/system/repo", $filename) } catch * { () }
+        (: name/version from the deployed package descriptor when available :)
+        let $expath := try { doc($target || "/expath-pkg.xml")/* } catch * { () }
+        return map {
+            "success": ($status/@result = "ok"),
+            "result": map {
+                "name": ($expath/@name/string()[. ne ""], $target)[1],
+                "version": ($expath/@version/string(), "")[1],
+                "target": $target
+            }
+        }
+    }
+    catch * {
+        roaster:response(400, "application/json", map {
+            "success": false(),
+            "error": map {
+                "code": $err:code,
+                "description": $err:description,
+                "value": $err:value
+            }
+        })
+    }
+};
+
+(:~
+ : Install from a remote registry by package name (JSON body { name, url, version }).
+ :)
+declare %private function packages:install-from-registry($body as map(*)) {
     let $package-name := $body?name
     let $registry-url := $body?url
     let $version := ($body?version, "")[1]
