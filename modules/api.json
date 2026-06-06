@@ -428,11 +428,39 @@
             }
           },
           "400": {
-            "description": "Bad request — invalid or missing query",
+            "description": "Bad request — missing `query` field or malformed `context-item` XML",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`context-path` was supplied but the document at that path doesn't exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server-side error during query compilation or evaluation. Body carries the structured XPathException fields (`code`, `description`, `line`, `column`, `module`, `value`) so clients can surface the real cause.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code":        { "type": "string",  "description": "Error QName, e.g. `err:XPST0081`" },
+                    "description": { "type": "string" },
+                    "line":        { "type": "integer" },
+                    "column":      { "type": "integer" },
+                    "module":      { "type": "string", "nullable": true },
+                    "value":       { "nullable": true }
+                  }
                 }
               }
             }

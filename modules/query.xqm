@@ -11,6 +11,7 @@ xquery version "3.1";
 module namespace query="http://exist-db.org/api/query";
 
 import module namespace cursor="http://exist-db.org/xquery/cursor";
+import module namespace roaster="http://e-editiones.org/roaster";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 
@@ -59,36 +60,54 @@ declare function query:execute($request as map(*)) {
     return
         if (empty($expression) or $expression = "")
         then
-            map { "error": "Missing required field: query" }
+            roaster:response(400, "application/json",
+                map { "error": "Missing required field: query" })
         else
             (: context-path (a DB path the editor has open) takes precedence
              : over context-item (inline serialized XML). Either resolves to
              : the node `expression` will see as `.` / the focus of
              : unprefixed path expressions like `//foo`. :)
-            try {
-                let $context-item :=
-                    if (exists($context-path) and $context-path != "") then
-                        if (doc-available($context-path))
-                        then doc($context-path)
-                        else error(xs:QName("query:context-path-not-found"),
-                                   "context-path not found: " || $context-path)
-                    else if (exists($context-item-xml) and $context-item-xml != "") then
-                        parse-xml($context-item-xml)
-                    else
-                        ()
-                let $mlp := if ($module-load-path) then $module-load-path else ()
-                return
-                    if (exists($context-item)) then
-                        cursor:eval($expression, $mlp, $context-item)
-                    else if (exists($mlp)) then
-                        cursor:eval($expression, $mlp)
-                    else
-                        cursor:eval($expression)
-            } catch query:context-path-not-found {
-                map { "error": $err:description }
-            } catch * {
-                map { "error": "Invalid context-item: " || $err:description }
-            }
+            let $context-item := query:resolve-context-item($context-path, $context-item-xml)
+            return
+                if ($context-item instance of map(*) and exists($context-item?error))
+                then
+                    roaster:response($context-item?status, "application/json",
+                        map { "error": $context-item?error })
+                else
+                    let $mlp := if ($module-load-path) then $module-load-path else ()
+                    return
+                        if (exists($context-item)) then
+                            cursor:eval($expression, $mlp, $context-item)
+                        else if (exists($mlp)) then
+                            cursor:eval($expression, $mlp)
+                        else
+                            cursor:eval($expression)
+};
+
+(:~
+ : Resolve the optional context item for query:execute. Returns a node()
+ : on success, an error map { status, error } if context-path is missing
+ : or context-item is malformed XML, or empty-sequence if neither is
+ : supplied. The error map is wrapped here rather than propagating an
+ : XPath error so cursor:eval's own errors (the user's XQuery has bugs)
+ : pass through unmodified and Roaster gives them a proper HTTP status.
+ :)
+declare %private function query:resolve-context-item(
+    $context-path as xs:string?,
+    $context-item-xml as xs:string?
+) {
+    if (exists($context-path) and $context-path != "") then
+        if (doc-available($context-path))
+        then doc($context-path)
+        else map { "status": 404, "error": "context-path not found: " || $context-path }
+    else if (exists($context-item-xml) and $context-item-xml != "") then
+        try {
+            parse-xml($context-item-xml)
+        } catch * {
+            map { "status": 400, "error": "Invalid context-item: " || $err:description }
+        }
+    else
+        ()
 };
 
 (:~
