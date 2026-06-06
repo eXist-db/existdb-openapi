@@ -2115,7 +2115,8 @@
                   },
                   "mode": {
                     "type": "string",
-                    "description": "New permission mode (e.g. rwxr-xr-x)"
+                    "description": "New permission mode, as a symbolic string. Three formats are accepted: (1) **simple symbolic** — `rwxr-xr-x` (9 characters covering user/group/other × read/write/execute); (2) **Unix symbolic** — relative form with `+`/`-`/`=` operators, e.g. `u+x,g-w` or `u=rwx,g=rx,o=r`; (3) **eXist symbolic** — verbose form like `user=+read,user=+write,group=+read,other=+read`. Octal strings (e.g. `0644`, `644`) are **not** accepted by the underlying `sm:chmod` string overload; clients that want to send a numeric mode must convert it to one of the symbolic forms first.",
+                    "example": "rwxr-xr-x"
                   }
                 }
               }
