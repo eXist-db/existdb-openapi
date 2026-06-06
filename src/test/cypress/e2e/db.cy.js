@@ -308,21 +308,152 @@ describe('/api/db', () => {
   });
 
   describe('POST /api/db/permissions', () => {
-    it('changes permissions on a resource', () => {
+    // Dedicated resource so these tests don't perturb (or get perturbed by)
+    // earlier permissions tweaks on /test.xml above.
+    const permResource = `${testCollection}/perm.xml`;
+    const permSubCollection = `${testCollection}/perm-sub`;
+
+    before(() => {
+      // Resource for resource-permission tests
       cy.request({
-        url: '/api/db/permissions',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/test.xml`, mode: 'rw-rw-r--' }
+        url: '/api/db/resource', method: 'PUT', auth,
+        body: { path: permResource, content: '<r/>', 'mime-type': 'application/xml' }
+      });
+      // Sub-collection for collection-permission tests
+      cy.request({
+        url: '/api/db/collection', method: 'POST', auth,
+        body: { path: permSubCollection }
+      });
+    });
+
+    it('changes mode on a resource (rwxrwxrwx-style)', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, mode: 'rw-rw-r--' }
+      }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body).to.have.property('updated', permResource);
+      });
+
+      cy.request({ url: `/api/db/properties?path=${permResource}`, auth })
+        .then(response => {
+          expect(response.body.mode).to.eq('rw-rw-r--');
+        });
+    });
+
+    it('changes owner on a resource', () => {
+      // admin → guest, then back to admin so later tests aren't affected
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, owner: 'guest' }
       }).then(response => {
         expect(response.body).to.have.property('updated');
       });
+      cy.request({ url: `/api/db/properties?path=${permResource}`, auth })
+        .then(response => {
+          expect(response.body.owner).to.eq('guest');
+        });
 
       cy.request({
-        url: `/api/db/properties?path=${testCollection}/test.xml`,
-        auth
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, owner: 'admin' }
+      });
+    });
+
+    it('changes group on a resource', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, group: 'guest' }
+      });
+      cy.request({ url: `/api/db/properties?path=${permResource}`, auth })
+        .then(response => {
+          expect(response.body.group).to.eq('guest');
+        });
+
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, group: 'dba' }
+      });
+    });
+
+    it('applies owner + group + mode in a single request', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: {
+          path: permResource,
+          owner: 'guest', group: 'guest', mode: 'rw-r-----'
+        }
       }).then(response => {
-        expect(response.body.mode).to.eq('rw-rw-r--');
+        expect(response.status).to.eq(200);
+      });
+
+      cy.request({ url: `/api/db/properties?path=${permResource}`, auth })
+        .then(response => {
+          expect(response.body.owner).to.eq('guest');
+          expect(response.body.group).to.eq('guest');
+          expect(response.body.mode).to.eq('rw-r-----');
+        });
+
+      // Restore
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, owner: 'admin', group: 'dba', mode: 'rw-rw-r--' }
+      });
+    });
+
+    it('changes mode on a collection', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permSubCollection, mode: 'rwxr-x---' }
+      }).then(response => {
+        expect(response.body).to.have.property('updated', permSubCollection);
+      });
+
+      cy.request({ url: `/api/db/properties?path=${permSubCollection}`, auth })
+        .then(response => {
+          expect(response.body.type).to.eq('collection');
+          expect(response.body.mode).to.eq('rwxr-x---');
+        });
+    });
+
+    it('rejects octal mode strings (sm:chmod does not accept them)', () => {
+      // Documenting the contract: sm:chmod only accepts the symbolic
+      // rwxrwxrwx-style and relative forms (u+x, g-w, etc.) — NOT octal
+      // strings like "0644" or "644". Clients that want to send a numeric
+      // mode must convert it to the rwxrwxrwx form first.
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: permResource, mode: '0644' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.be.at.least(400);
+        const body = response.body;
+        const msg = (body.description || body.error || '').toLowerCase();
+        expect(msg).to.match(/mode|syntax/);
+      });
+    });
+
+    it('returns HTTP 400 when path is missing', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { mode: 'rw-rw-r--' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.eq(400);
+        expect(response.body).to.have.property('error');
+        expect(response.body.error).to.match(/path/i);
+      });
+    });
+
+    it('returns an error for a nonexistent path', () => {
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth,
+        body: { path: '/db/does-not-exist-xyz.xml', mode: 'rw-rw-r--' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.be.at.least(400);
+        const body = response.body;
+        expect(body.description || body.error).to.exist;
       });
     });
   });
