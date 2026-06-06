@@ -238,14 +238,53 @@ describe('/api/query', () => {
   });
 
   describe('error handling', () => {
-    it('returns error for missing query', () => {
+    it('returns HTTP 400 for missing query', () => {
       cy.request({
         url: '/api/query',
         method: 'POST',
         auth,
-        body: { query: '' }
+        body: { query: '' },
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(400);
         expect(response.body).to.have.property('error');
+      });
+    });
+
+    // Regression: PR #41's try/catch wrapped every cursor:eval error with
+    // "Invalid context-item:" AND returned HTTP 200, breaking eXide's
+    // error-display path (which relies on `if (!response.ok)`).
+    // cursor:eval errors must now propagate with their original code/
+    // description and a non-200 status.
+    it('lets cursor:eval errors propagate with structured fields and HTTP 5xx', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: { query: '//does-not-exist:foo' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.be.oneOf([400, 500]);
+        // Structured XPathException → JSON: { code, description, line, column, module, value }
+        expect(response.body).to.have.property('code');
+        expect(response.body.code).to.match(/XPST0081/);
+        expect(response.body).to.have.property('description');
+        expect(response.body).to.have.property('line');
+        // Must NOT be mislabeled as a context-item error
+        expect(response.body.description).to.not.include('Invalid context-item');
+      });
+    });
+
+    it('returns HTTP 400 with proper prefix for malformed context-item', () => {
+      cy.request({
+        url: '/api/query',
+        method: 'POST',
+        auth,
+        body: { query: '.', 'context-item': '<not-well-formed' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.eq(400);
+        expect(response.body.error).to.include('Invalid context-item');
       });
     });
   });
@@ -402,8 +441,10 @@ describe('/api/query', () => {
         url: '/api/query',
         method: 'POST',
         auth,
-        body: { query: '.', 'context-item': '<not-well-formed' }
+        body: { query: '.', 'context-item': '<not-well-formed' },
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(400);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('context-item');
       });
@@ -414,8 +455,10 @@ describe('/api/query', () => {
         url: '/api/query',
         method: 'POST',
         auth,
-        body: { query: '.', 'context-path': '/db/nonexistent-xyz.xml' }
+        body: { query: '.', 'context-path': '/db/nonexistent-xyz.xml' },
+        failOnStatusCode: false
       }).then(response => {
+        expect(response.status).to.eq(404);
         expect(response.body).to.have.property('error');
         expect(response.body.error).to.include('not found');
       });
