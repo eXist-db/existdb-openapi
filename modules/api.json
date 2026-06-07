@@ -3509,7 +3509,15 @@
             "schema": {
               "type": "string"
             },
-            "description": "Restrict search to a specific app abbreviation"
+            "description": "Restrict to a single app via the site-app facet (e.g. docs, blog, notebook)"
+          },
+          {
+            "name": "section",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Restrict to a section within an app via the site-section facet (e.g. functions, posts)"
           },
           {
             "name": "limit",
@@ -3553,6 +3561,22 @@
                     "limit": {
                       "type": "integer",
                       "description": "Page size that was applied"
+                    },
+                    "facets": {
+                      "type": "object",
+                      "description": "Facet counts for building a filter UI: each dimension maps facet values to hit counts.",
+                      "properties": {
+                        "site-app": {
+                          "type": "object",
+                          "additionalProperties": { "type": "integer" },
+                          "description": "Hit count per app (e.g. { \"docs\": 88, \"blog\": 21 })"
+                        },
+                        "site-section": {
+                          "type": "object",
+                          "additionalProperties": { "type": "integer" },
+                          "description": "Hit count per section"
+                        }
+                      }
                     },
                     "results": {
                       "type": "array",
@@ -3603,6 +3627,10 @@
                     "total": 22,
                     "offset": 0,
                     "limit": 20,
+                    "facets": {
+                      "site-app": { "docs": 18, "blog": 4 },
+                      "site-section": { }
+                    },
                     "results": [
                       {
                         "uri": "/db/apps/doc/data/urlrewrite/urlrewrite.xml",
