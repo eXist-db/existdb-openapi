@@ -196,6 +196,96 @@ See [Configuration](#configuration) for tuning.
 
 ---
 
+## Sitewide search
+
+`GET /api/search` runs one relevance-ranked Lucene query across every content app
+that contributes to a shared `site-content` field, and returns scored hits with
+KWIC highlighting (`<mark>` snippets) and facet counts. Site-wide and per-app
+search are the same query, with or without a facet filter.
+
+### What a producer must index
+
+To make an app's content searchable, index a **shared field convention** on the
+element that represents one search result (typically the document root). In the
+app's `collection.xconf`:
+
+```xml
+<collection xmlns="http://exist-db.org/collection-config/1.0">
+  <index><lucene>
+    <text qname="page">
+      <field name="site-content" expression="string-join(.//text(), ' ')"/>
+      <field name="site-title"   expression="head/title"/>
+      <field name="site-url"     expression="..."/>            <!-- see convention below -->
+      <facet dimension="site-app"     expression="'myapp'"/>
+      <facet dimension="site-section" expression="head/section"/>
+    </text>
+  </lucene></index>
+</collection>
+```
+
+| Field / facet | Required | Purpose |
+|---|---|---|
+| `site-content` (field) | **yes** | the searchable text; what relevance ranks on |
+| `site-title` (field) | recommended | the result heading (else `/api/search` falls back to a `<title>` child, then `"(untitled)"`) |
+| `site-url` (field) | recommended | the canonical link to the rendered page — see the convention below |
+| `site-app` (facet) | recommended | groups results by app (drives the facet drill-down + counts) |
+| `site-section` (facet) | optional | a finer category within the app |
+
+The field and facet **names must be identical across all apps** — that is what
+lets one query span them. Element names need *not* match: `/api/search` selects
+the contributing element with a single-step axis (`collection("/db/apps")/*`),
+which is name-independent and — unlike a `//*` descendant wildcard — preserves
+`ft:score` for field queries.
+
+### The `site-url` convention
+
+`site-url` is the canonical link a user would follow (or bookmark) to view the
+result. Store it as a **root-relative path**:
+
+- **Begin with `/`, and point at the rendered page** — not the `/db/...` storage
+  resource. e.g. `/exist/apps/docs/functions/array`,
+  `/exist/apps/blog/2015/xquery-3-1`.
+- **No scheme, host, or port.** A producer writes `site-url` at index time, when
+  it cannot reliably know the instance's external origin — behind a reverse proxy
+  or container port-mapping, request introspection (e.g. `request:get-server-port()`)
+  reports the wrong value — and a baked absolute URL goes stale the moment the
+  content is served from a different origin (dev/staging/prod, a new domain, a
+  CDN). A root-relative path is portable across all of them.
+- **One rule, every app.** `/api/search` normalizes the value to this shape (it
+  roots any app-relative value under `/exist/apps/<app>/`), but producers should
+  emit the compliant form directly rather than rely on the safety net.
+
+Consumers compose an absolute URL by prefixing the origin *they* know: a browser
+or the Oxygen plugin prepends its own connection origin; server-side code that
+genuinely needs an absolute URL — Atom/RSS feeds, sitemaps, email, SEO canonical
+tags — prepends a single configured public base URL. Never per-document, never
+from request introspection.
+
+### Response shape
+
+```jsonc
+{
+  "query": "array", "total": 53, "offset": 0, "limit": 20,
+  "facets": { "site-app": { "docs": 41, "blog": 8 }, "site-section": { … } },
+  "results": [
+    {
+      "uri":   "/db/apps/docs/data/functions/….xml",  // storage path
+      "title": "array:flatten",
+      "app":   "docs",
+      "url":   "/exist/apps/docs/functions/array",     // root-relative view URL
+      "score": 3.42,
+      "snippet":    "<span>… the <mark>array</mark> functions …</span>",
+      "highlights": [ "<span>…<mark>array</mark>…</span>", … ]
+    }
+  ]
+}
+```
+
+`app`/`section` query parameters narrow the result set (facet drill-down). See
+the OpenAPI spec (`modules/api.json`) for the full operation contract.
+
+---
+
 ## Configuration
 
 `CursorModule` accepts three parameters via `exist.xml` (set on the module
