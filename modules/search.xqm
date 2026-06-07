@@ -121,7 +121,12 @@ declare function search:query($request as map(*)) {
                 ))
             let $options :=
                 map:merge((
-                    map { "default-operator": "and", "filter-rewrite": "yes" },
+                    map {
+                        "default-operator": "and",
+                        "filter-rewrite": "yes",
+                        (: load the producer's display fields so ft:field can return them :)
+                        "fields": ("site-title", "site-url")
+                    },
                     if (map:size($facet-filter) gt 0) then map { "facets": $facet-filter } else ()
                 ))
             (: Match at document-root level (collection(…)/*) — a single-step
@@ -163,6 +168,10 @@ declare function search:query($request as map(*)) {
                     let $hit := $m?hit
                     let $doc-uri := $m?uri
                     let $app := replace($doc-uri, "^/db/apps/([^/]+)/.*$", "$1")
+                    (: Prefer the producer's site-title/site-url fields; fall back
+                       to a <title> child / a computed app-relative URL. :)
+                    let $site-title := (ft:field($hit, "site-title", "xs:string"))[. ne ""][1]
+                    let $site-url := (ft:field($hit, "site-url", "xs:string"))[. ne ""][1]
                     let $fragments := search:highlights($hit)
                     let $snippet :=
                         if (exists($fragments))
@@ -174,9 +183,9 @@ declare function search:query($request as map(*)) {
                     return map {
                         "uri": $doc-uri,
                         "path": $doc-uri,
-                        "title": string(($hit/ancestor-or-self::*[title][1]/title, "(untitled)")[1]),
+                        "title": ($site-title, string($hit/ancestor-or-self::*[title][1]/title)[. ne ""], "(untitled)")[1],
                         "app": $app,
-                        "url": site:resolve-link($app, replace($doc-uri, "^/db/apps/[^/]+", "")),
+                        "url": ($site-url, site:resolve-link($app, replace($doc-uri, "^/db/apps/[^/]+", "")))[1],
                         "score": $m?score,
                         "snippet": $snippet,
                         "highlights": array { $fragments }
