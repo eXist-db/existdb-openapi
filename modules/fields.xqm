@@ -5,29 +5,25 @@
 xquery version "3.1";
 
 (:~
- : Sitewide search — field discovery (Phase 2, prototype).
+ : Sitewide search — field discovery (Phase 2).
  :
- : Enumerates the searchable fields and facets configured across a collection
- : scope, and filters them by a field-level-security (FLS) policy keyed off the
- : caller's identity. Lets a consumer (e.g. the Oxygen plugin) ask "what can I
- : search here?" and "what is this field's contract?" before issuing a query.
+ : Answers "what can I search here, and what is each field's contract?" for a
+ : consumer (e.g. the Oxygen plugin's field picker) before it issues a query.
  :
- : Two layers, deliberately separated (the ES model — see the broaden-/api/search
- : design):
- :   1. CATALOG — the full set of configured fields/facets, read with privilege.
- :      collection.xconf lives under /db/system/config (not caller-readable), and
- :      the index schema is system-managed, so the catalog read is privileged and
- :      permission-AGNOSTIC. This XQuery xconf-parser is a STAND-IN for the native
- :      ft:fields($scope) (which reads the resolved LuceneConfig via the broker and
- :      sidesteps the /db/system/config read-permission issue entirely — the
- :      concrete reason that function is worth building natively).
- :   2. FLS — the policy that decides which catalog entries THIS caller may see,
- :      applied after the privileged read. Field access lives in the policy (keyed
- :      by group), never as an ACL on the field itself (the Elasticsearch lesson).
+ : Two layers, deliberately separate (the Elasticsearch model — see the
+ : broaden-/api/search design):
+ :   1. CATALOG — the full set of configured fields/facets under a scope, from the
+ :      native ft:fields($scope). It reads the resolved Lucene index config via the
+ :      broker, is permission-AGNOSTIC, and is callable by any user (it does NOT
+ :      require the caller to read the admin-only /db/system/config).
+ :   2. FLS — a group->fields policy decides which catalog entries THIS caller may
+ :      see, applied after the (permission-agnostic) catalog read. Field access
+ :      lives in the policy, never as an ACL on the field. Document-level security
+ :      is already enforced underneath by ft:query-scope/ft:search-scope node
+ :      materialization; this is the field-level layer on top.
  :)
 module namespace fields = "http://exist-db.org/api/search/fields";
 
-declare namespace ccc = "http://exist-db.org/collection-config/1.0";
 declare namespace output = "http://www.w3.org/2010/xslt-xquery-serialization";
 
 declare option output:method "json";
@@ -51,55 +47,60 @@ declare variable $fields:public as xs:string+ :=
 declare variable $fields:restricted as map(*) :=
     map { (: "internal-notes": ("editors", "dba") :) };
 
-(:~
- : CATALOG — parse the collection.xconf docs governing $scope into one record per
- : configured field/facet. Privileged read; returns the FULL set (FLS applied
- : later). Stand-in for ft:fields($scope).
- :
- : @param $scope a collection path, e.g. "/db/apps"
- : @return one map per field/facet: { field, kind, element, analyzer?, type?, returnable? }
- :)
-declare %private function fields:catalog($scope as xs:string) as map(*)* {
-    let $config-root := "/db/system/config" || $scope
-    let $read :=
-        function() {
-            for $t in collection($config-root)//ccc:text
-            let $on := (string($t/@qname), string($t/@match))[. ne ""][1]
-            let $analyzer :=
-                ( string($t/@analyzer),
-                  string(($t/ancestor::ccc:lucene[1]/ccc:analyzer[not(@id)])[1]/@class),
-                  string(($t/ancestor::ccc:lucene[1]/ccc:analyzer)[1]/@class) )[. ne ""][1]
-            return (
-                for $f in $t/ccc:field
-                return map {
-                    "field": string($f/@name),
-                    "kind": "field",
-                    "element": $on,
-                    "analyzer": ($analyzer[. ne ""], "(default)")[1],
-                    "type": (string($f/@type)[. ne ""], "xs:string")[1],
-                    "returnable": not(string($f/@store) = "no")
-                },
-                for $fa in $t/ccc:facet
-                return map { "field": string($fa/@dimension), "kind": "facet", "element": $on }
-            )
-        }
-    return
-        (: PROTOTYPE: configs are admin-only; read with privilege. The production
-           form is ft:fields($scope), which reads the resolved config natively via
-           the broker and needs no credential here. :)
-        system:as-user("admin", "", $read())
+(:~ All descendant collections of $col (inclusive), for cross-collection union. :)
+declare %private function fields:descendant-collections($col as xs:string) as xs:string* {
+    if (xmldb:collection-available($col))
+    then ($col, for $child in xmldb:get-child-collections($col)
+                return fields:descendant-collections($col || "/" || $child))
+    else ()
 };
 
-(:~ Dedup the catalog by (field, kind) — a shared field (site-content) appears in
- :  many app configs; collapse to one record, keeping the distinct elements it is
- :  indexed on. :)
+(:~
+ : CATALOG — the full field/facet set configured under $scope, via native
+ : ft:fields. Returns one map per configured field/facet OCCURRENCE:
+ :   { field, element, kind: "field"|"facet", analyzer?, type?, returnable? }
+ : (analyzer/type/returnable on fields only). Permission-agnostic.
+ :
+ : NOTE: ft:fields resolves the SINGLE config for a given collection/doc-set; it
+ : does NOT aggregate across sub-collections (ft:fields("/db/apps") is empty when
+ : the configs live on each app's data collection, and a sequence scope resolves
+ : to only the first collection's config). For site-wide discovery we therefore
+ : union ft:fields over every descendant collection in scope. If ft:fields gains
+ : native cross-collection aggregation, this collapses to a single ft:fields($scope).
+ :)
+declare %private function fields:catalog($scope as xs:string*) as map(*)* {
+    for $col in distinct-values($scope ! fields:descendant-collections(.))
+    (: ft:fields also emits element-level text-index records (a plain <text qname>
+       with no named <field> yields a map with only "element"); those aren't
+       named, field:(...)-queryable fields, so drop them from the catalog. :)
+    return ft:fields($col)[exists(?field)]
+};
+
+(:~
+ : Collapse the per-occurrence catalog to one record per (field, kind), keeping
+ : the distinct elements it is indexed on AND the distinct analyzers used. A
+ : shared field can be indexed with different analyzers on different elements
+ : (e.g. site-content uses StandardAnalyzer on most elements but SimpleAnalyzer on
+ : the docs xqdoc elements); surfacing both as a list reveals that variance rather
+ : than hiding it behind whichever occurrence happened to come first.
+ :)
 declare %private function fields:dedup($cat as map(*)*) as map(*)* {
-    for $key in distinct-values($cat ! (?field || "\t" || ?kind))
-    let $group := $cat[(?field || "\t" || ?kind) = $key]
-    let $first := $group[1]
+    let $sep := codepoints-to-string(9)
+    for $key in distinct-values($cat ! (?field || $sep || ?kind))
+    let $g := $cat[(?field || $sep || ?kind) = $key]
+    let $first := $g[1]
+    let $analyzers := distinct-values($g ! ?analyzer)[. ne ""]
     return map:merge((
-        $first,
-        map { "elements": array { distinct-values($group ! ?element) } }
+        map {
+            "field": $first?field,
+            "kind": $first?kind,
+            "elements": array { distinct-values($g ! ?element) }
+        },
+        if ($first?kind = "field") then map {
+            "analyzer": (if (count($analyzers) gt 1) then array { $analyzers } else ($analyzers, ())[1]),
+            "type": $first?type,
+            "returnable": $first?returnable
+        } else ()
     ))
 };
 
@@ -112,28 +113,28 @@ declare %private function fields:visible(
     then (some $g in $groups satisfies $g = $fields:restricted($field))
     else if ($field = $fields:public) then true()
     else (: neither public nor restricted -> any authenticated (non-guest) caller :)
-        exists($groups[. ne "guest"]) or (exists($groups) and not($groups = "guest"))
+        exists($groups[. ne "guest"])
 };
 
 (:~
  : Discover the searchable fields under $scope visible to $user.
- : @param $scope a collection path
+ : @param $scope one or more collection paths (document paths, recursive)
  : @param $user  the caller identity map (e.g. $request?user): { name, groups, dba }
  :)
-declare function fields:discover($scope as xs:string, $user as map(*)?) as map(*) {
+declare function fields:discover($scope as xs:string*, $user as map(*)?) as map(*) {
     let $name := ($user?name, "guest")[1]
     let $groups := ($user?groups, "guest")
     let $is-dba := ($user?dba, false())[1]
     let $catalog := fields:dedup(fields:catalog($scope))
     let $visible := $catalog[fields:visible(?field, $groups, $is-dba)]
     return map {
-        "scope": $scope,
+        "scope": array { $scope },
         "user": $name,
         "total": count($visible),
         "fields": array {
             for $e in $visible
             order by $e?kind, $e?field
-            return map:remove($e, "element")
+            return $e
         }
     }
 };
@@ -144,7 +145,7 @@ declare function fields:discover($scope as xs:string, $user as map(*)?) as map(*
  : that field's contract.
  :)
 declare function fields:list($request as map(*)) {
-    let $scope := ($request?parameters?scope[. ne ""], $fields:default-scope)[1]
+    let $scope := ($request?parameters?scope[. ne ""], $fields:default-scope)
     let $field := $request?parameters?field
     let $result := fields:discover($scope, $request?user)
     return
