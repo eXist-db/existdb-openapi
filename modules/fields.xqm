@@ -129,7 +129,10 @@ declare function fields:discover($scope as xs:string*, $user as map(*)?) as map(
  : that field's contract.
  :)
 declare function fields:list($request as map(*)) {
-    let $scope := ($request?parameters?scope[. ne ""], $fields:default-scope)
+    let $scope :=
+        if (exists($request?parameters?scope[. ne ""]))
+        then $request?parameters?scope[. ne ""]
+        else $fields:default-scope
     let $field := $request?parameters?field
     let $result := fields:discover($scope, $request?user)
     return
