@@ -91,11 +91,23 @@ describe('/api/search/fields', () => {
       });
     });
 
-    it('exposes non-public fields to an authenticated (dba) caller', () => {
+    it('field-level security: a dba caller sees non-public fields', () => {
       cy.request({ url: `/api/search/fields?scope=${SCOPE}`, auth }).then(response => {
         const names = response.body.fields.map(f => f.field);
         expect(names, 'public field').to.include('site-content');
-        expect(names, 'non-public field, visible to this authenticated caller').to.include('secret-notes');
+        expect(names, 'non-public field, visible to a dba').to.include('secret-notes');
+      });
+    });
+
+    it('field-level security: an unauthenticated (guest) caller sees only public fields', () => {
+      // The route admits unauthenticated callers; identity resolves to guest, so
+      // the policy returns the public site-* fields only.
+      cy.request({ url: `/api/search/fields?scope=${SCOPE}` }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.body.user).to.eq('guest');
+        const names = response.body.fields.map(f => f.field);
+        expect(names, 'public field visible to guest').to.include('site-content');
+        expect(names, 'non-public field hidden from guest').to.not.include('secret-notes');
       });
     });
   });
