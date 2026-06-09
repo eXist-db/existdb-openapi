@@ -47,33 +47,17 @@ declare variable $fields:public as xs:string+ :=
 declare variable $fields:restricted as map(*) :=
     map { (: "internal-notes": ("editors", "dba") :) };
 
-(:~ All descendant collections of $col (inclusive), for cross-collection union. :)
-declare %private function fields:descendant-collections($col as xs:string) as xs:string* {
-    if (xmldb:collection-available($col))
-    then ($col, for $child in xmldb:get-child-collections($col)
-                return fields:descendant-collections($col || "/" || $child))
-    else ()
-};
-
 (:~
  : CATALOG — the full field/facet set configured under $scope, via native
- : ft:fields. Returns one map per configured field/facet OCCURRENCE:
- :   { field, element, kind: "field"|"facet", analyzer?, type?, returnable? }
- : (analyzer/type/returnable on fields only). Permission-agnostic.
- :
- : NOTE: ft:fields resolves the SINGLE config for a given collection/doc-set; it
- : does NOT aggregate across sub-collections (ft:fields("/db/apps") is empty when
- : the configs live on each app's data collection, and a sequence scope resolves
- : to only the first collection's config). For site-wide discovery we therefore
- : union ft:fields over every descendant collection in scope. If ft:fields gains
- : native cross-collection aggregation, this collapses to a single ft:fields($scope).
+ : ft:fields. Returns one map per configured field/facet/vector OCCURRENCE:
+ :   { field, element, kind: "field"|"facet"|"vector", analyzer?, type?, returnable? }
+ : (analyzer/type/returnable on text fields only). Permission-agnostic, and it
+ : aggregates across every collection in scope (so ft:fields("/db/apps") unions
+ : every sub-app's fields) and always sets field + kind (eXist-db/exist#6459,
+ : d724759). No descendant-walk or field-presence filter needed here.
  :)
 declare %private function fields:catalog($scope as xs:string*) as map(*)* {
-    for $col in distinct-values($scope ! fields:descendant-collections(.))
-    (: ft:fields also emits element-level text-index records (a plain <text qname>
-       with no named <field> yields a map with only "element"); those aren't
-       named, field:(...)-queryable fields, so drop them from the catalog. :)
-    return ft:fields($col)[exists(?field)]
+    ft:fields($scope)
 };
 
 (:~
