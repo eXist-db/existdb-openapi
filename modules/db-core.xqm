@@ -165,6 +165,7 @@ declare %private function dbc:get-resource-info($collection as xs:string, $resou
         "path": dbc:to-display($path),
         (: see db-core:get-collection-info for the writable rationale :)
         "writable": sm:has-access(xs:anyURI($path), "w"),
+        "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
