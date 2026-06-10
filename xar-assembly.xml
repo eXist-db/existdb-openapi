@@ -37,8 +37,41 @@
         <fileSet>
             <directory>${basedir}/modules</directory>
             <outputDirectory>modules</outputDirectory>
+            <!-- db-core.xqm and dbutils.xqm are placed (and registered as public
+                 modules) by the xquerySets below; exclude them here so they are
+                 not copied twice. -->
+            <excludes>
+                <exclude>db-core.xqm</exclude>
+                <exclude>dbutils.xqm</exclude>
+            </excludes>
         </fileSet>
     </fileSets>
+
+    <!-- Register db-core as a PUBLIC XQuery library module so in-process
+         consumers (e.g. eXide's db adapter) can import it by namespace alone,
+         with no absolute-path `at` hint:
+           import module namespace dbc="http://exist-db.org/api/db-core"; -->
+    <xquerySets>
+        <xquerySet>
+            <namespace>http://exist-db.org/api/db-core</namespace>
+            <directory>${basedir}</directory>
+            <includes>
+                <include>modules/db-core.xqm</include>
+            </includes>
+            <outputDirectory>.</outputDirectory>
+        </xquerySet>
+        <!-- db-core's only same-package dependency; registered public so it
+             resolves under db-core's public-module load (relative hints have no
+             base URI there). -->
+        <xquerySet>
+            <namespace>http://exist-db.org/api/dbutils</namespace>
+            <directory>${basedir}</directory>
+            <includes>
+                <include>modules/dbutils.xqm</include>
+            </includes>
+            <outputDirectory>.</outputDirectory>
+        </xquerySet>
+    </xquerySets>
 
     <!-- include the Java module JAR from this project -->
     <dependencySets>
