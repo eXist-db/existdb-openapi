@@ -821,22 +821,29 @@ declare function dbc:set-permissions($args as map(*)) as map(*) {
         if (empty($path))
         then dbc:error("bad-request", "Missing required field: path", map {})
         else
-            (: A bad owner/group, malformed mode, or a mime incompatible with the
-             : resource's storage class (eXist only lets an XML-stored resource take
-             : an XML-class mime, and a binary resource a binary-class mime) makes
-             : the broker call throw — surface that as a clean bad-request rather
-             : than letting it become an undeclared 500. :)
-            try {
-                let $_ := (
+            (: Classify failures by OPERATION, not by error code. eXist's sm:* and the
+             : mode validator throw a generic ErrorCodes.ERROR for permission-denied,
+             : bad-owner/group, and malformed-mode alike (PermissionsFunction.java +
+             : XPathException.java default), distinguishable only by message text — too
+             : brittle to key on. So: a chown/chgrp/chmod failure is overwhelmingly an
+             : authorization failure -> forbidden (403); a set-mime failure is an input
+             : error (the mime is incompatible with the resource's storage class — eXist
+             : only allows an XML-class mime on an XML resource, a binary-class mime on a
+             : binary one) -> bad-request (400). (Tracked upstream: eXist should assign
+             : distinct error codes so this could key on $err:code instead.) :)
+            let $_ :=
+                try {(
                     if ($args?owner) then sm:chown(xs:anyURI($path), $args?owner) else (),
                     if ($args?group) then sm:chgrp(xs:anyURI($path), $args?group) else (),
-                    if ($args?mode) then sm:chmod(xs:anyURI($path), $args?mode) else (),
-                    if ($args?mime) then xmldb:set-mime-type(xs:anyURI($path), $args?mime) else ()
-                )
-                return map { "updated": dbc:to-display($path) }
-            } catch * {
-                dbc:error("bad-request", $err:description, map {})
-            }
+                    if ($args?mode) then sm:chmod(xs:anyURI($path), $args?mode) else ()
+                )}
+                catch * { dbc:error("forbidden", $err:description, map {}) }
+            let $_ :=
+                if ($args?mime)
+                then try { xmldb:set-mime-type(xs:anyURI($path), $args?mime) }
+                     catch * { dbc:error("bad-request", $err:description, map {}) }
+                else ()
+            return map { "updated": dbc:to-display($path) }
 };
 
 (:~
