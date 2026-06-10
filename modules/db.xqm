@@ -57,7 +57,16 @@ declare %private function db:to-display($path as xs:string?) as xs:string? {
     if (empty($path)) then $path
     else string-join(
         for $segment in tokenize($path, "/")
-        return if ($segment eq "") then "" else xmldb:decode-uri(xs:anyURI($segment)),
+        return
+            if ($segment eq "") then ""
+            (: xmldb:decode-uri form-decodes "+" to a space (the x-www-form-urlencoded
+             : convention; eXist-db/exist#1824), but a "+" in a STORED name is always a
+             : literal "+" -- spaces are stored as %20. Protect literal "+" as %2B so it
+             : decodes back to "+", staying symmetric with db:to-stored / fn:iri-to-uri,
+             : which leaves "+" untouched on the encode side. This mirrors what
+             : URIUtils.decodeForURI (the core fix in eXist-db/exist#6451) does, applied
+             : at the API layer so it is correct independent of the core build. :)
+            else xmldb:decode-uri(xs:anyURI(replace($segment, "\+", "%2B"))),
         "/"
     )
 };
