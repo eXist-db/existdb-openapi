@@ -942,4 +942,52 @@ describe('/api/db', () => {
       });
     });
   });
+
+  describe('awkward resource names (encode/decode boundary)', () => {
+    // The API speaks DECODED UTF-8 on the wire both ways: a client sends/receives
+    // "café déjà.xml", never "caf%C3%A9...". eXist stores names percent-encoded,
+    // so db.xqm encodes on input and decodes on output. The other db tests use
+    // ASCII names and so don't exercise this boundary.
+    const NAMES = ['café déjà.xml', "o'brien.xml"]; // non-ASCII + space; sub-delim apostrophe (xmldb:store leaves it literal)
+
+    before(() => {
+      cy.request({
+        url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false,
+        body: { path: testCollection }
+      });
+    });
+
+    NAMES.forEach(name => {
+      const path = `${testCollection}/${name}`;
+      const q = encodeURIComponent(path);
+
+      it(`stores, reads, lists and removes a resource named "${name}" by its decoded name`, () => {
+        // store with the decoded name in the body
+        cy.request({
+          url: '/api/db/resource', method: 'PUT', auth,
+          body: { path, content: `<doc>${name}</doc>`, 'mime-type': 'application/xml' }
+        }).then(r => expect(r.status).to.be.oneOf([200, 201]));
+
+        // read back BY the decoded name: path echoes decoded, content intact
+        cy.request({ url: `/api/db/resource?path=${q}`, auth }).then(r => {
+          expect(r.body.path).to.eq(path);
+          expect(r.body.content).to.include(name);
+        });
+
+        // listing shows the decoded name (not percent-encoded)
+        cy.request({ url: `/api/db?path=${encodeURIComponent(testCollection)}`, auth }).then(r => {
+          const names = r.body.children.map(c => c.name);
+          expect(names, 'decoded name appears in listing').to.include(name);
+          names.forEach(n =>
+            expect(n, 'listing names are decoded, not percent-encoded').to.not.match(/%[0-9A-Fa-f]{2}/)
+          );
+        });
+
+        // remove BY the decoded name
+        cy.request({ url: `/api/db/resource?path=${q}`, method: 'DELETE', auth }).then(r => {
+          expect(r.status).to.be.oneOf([200, 204]);
+        });
+      });
+    });
+  });
 });
