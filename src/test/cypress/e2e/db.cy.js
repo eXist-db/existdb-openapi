@@ -817,7 +817,9 @@ describe('/api/db', () => {
     // "café déjà.xml", never "caf%C3%A9...". eXist stores names percent-encoded,
     // so db.xqm encodes on input and decodes on output. The other db tests use
     // ASCII names and so don't exercise this boundary.
-    const NAMES = ['café déjà.xml', "o'brien.xml"]; // non-ASCII + space; sub-delim apostrophe (xmldb:store leaves it literal)
+    // non-ASCII + space; sub-delim apostrophe (xmldb:store leaves it literal); literal "+"
+    // (must survive: stored as a literal "+", decoded back to "+", NOT form-decoded to a space)
+    const NAMES = ['café déjà.xml', "o'brien.xml", 'naïve+test.xml'];
 
     before(() => {
       cy.request({
