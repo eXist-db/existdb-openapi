@@ -32,6 +32,7 @@ import module namespace dbutil="http://exist-db.org/api/dbutils";
 declare namespace sm="http://exist-db.org/xquery/securitymanager";
 declare namespace expath="http://expath.org/ns/pkg";
 declare namespace dberr="http://exist-db.org/api/db-core/error";
+declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 
 (:~ Protected paths that cannot be deleted. :)
 declare variable $dbc:protected-paths := (
@@ -317,6 +318,7 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
         then dbc:error("not-found", "Resource not found: " || dbc:to-display($path), map {})
         else
+            let $ser := dbc:serialization-params($opts)
             let $base :=
                 if (util:binary-doc-available($path))
                 then map {
@@ -329,7 +331,10 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
                 else map {
                     "path": dbc:to-display($path),
                     "binary": false(),
-                    "content": serialize(doc($path)),
+                    "content":
+                        if (exists($ser))
+                        then serialize(doc($path), $ser)
+                        else serialize(doc($path)),
                     "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
                     "runPath": dbc:get-run-path($path)
                 }
@@ -337,6 +342,47 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
                 if ($opts?meta = "full")
                 then map:merge(($base, dbc:resource-metadata($path)))
                 else $base
+};
+
+(:~
+ : Build an output:serialization-parameters element from the W3C serialization
+ : parameters present in $opts, or the empty sequence when none are given (so the
+ : caller falls back to a bare serialize() = the conf.xml serializer defaults;
+ : today's behavior, unchanged). Only keys the caller explicitly supplied are
+ : emitted, so omitted parameters keep deferring to conf.xml. Boolean params
+ : accept yes/no (the cursor query-results vocabulary) and tolerate true/false.
+ :
+ : NOTE: eXist's `expand-xincludes` serializer extension is deliberately NOT
+ : handled here. As of eXist 7.0.0-beta3 it cannot be honored for node->string
+ : serialization in XQuery (fn:serialize always expands; util:serialize was
+ : removed; the REST layer hard-codes expand-xincludes=yes). Advertising it while
+ : silently expanding would give clients a false guarantee and risk destroying
+ : <xi:include> on save. Tracked separately pending an eXist-core fix.
+ :)
+declare %private function dbc:serialization-params($opts as map(*)) as element(output:serialization-parameters)? {
+    let $children := (
+        if (exists($opts?method))
+            then <output:method>{$opts?method}</output:method> else (),
+        if (exists($opts?indent))
+            then <output:indent>{dbc:yes-no($opts?indent)}</output:indent> else (),
+        if (exists($opts?("omit-xml-declaration")))
+            then <output:omit-xml-declaration>{dbc:yes-no($opts?("omit-xml-declaration"))}</output:omit-xml-declaration> else (),
+        if (exists($opts?encoding))
+            then <output:encoding>{$opts?encoding}</output:encoding> else (),
+        if (exists($opts?("media-type")))
+            then <output:media-type>{$opts?("media-type")}</output:media-type> else (),
+        if (exists($opts?("item-separator")))
+            then <output:item-separator>{$opts?("item-separator")}</output:item-separator> else ()
+    )
+    return
+        if (empty($children))
+        then ()
+        else <output:serialization-parameters>{$children}</output:serialization-parameters>
+};
+
+(:~ Normalize a boolean serialization value to the W3C "yes"/"no" form. :)
+declare %private function dbc:yes-no($value as xs:string) as xs:string {
+    if (lower-case($value) = ("yes", "true", "1")) then "yes" else "no"
 };
 
 (:~

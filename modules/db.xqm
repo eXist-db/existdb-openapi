@@ -75,10 +75,10 @@ declare function db:list($request as map(*)) {
  :)
 declare function db:get-resource($request as map(*)) {
     try {
-        dbc:get-resource(
-            $request?parameters?path,
-            map { "meta": $request?parameters?meta }
-        )
+        (: pass the request parameters straight through as options — db-core reads
+         : meta plus the W3C serialization keys (method/indent/omit-xml-declaration/
+         : encoding/media-type/item-separator) and ignores the rest. :)
+        dbc:get-resource($request?parameters?path, $request?parameters)
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }

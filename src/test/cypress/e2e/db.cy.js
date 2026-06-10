@@ -993,6 +993,65 @@ describe('/api/db', () => {
     });
   });
 
+  // Serialization parameters on GET /api/db/resource (existdb-openapi#48,
+  // folded into db-core's get-resource). XML resources honor the W3C
+  // serialization params; omitted params defer to conf.xml defaults.
+  describe('GET /api/db/resource — serialization parameters (oxex / #48)', () => {
+    const serDoc = `${testCollection}/ser.xml`;
+
+    before(() => {
+      cy.request({
+        url: '/api/db/resource', method: 'PUT', auth,
+        body: { path: serDoc, content: '<root><a>1</a><b>2</b></root>', 'mime-type': 'application/xml' }
+      });
+    });
+
+    it('no serialization params → the conf.xml default (backward compatible)', () => {
+      cy.request({ url: `/api/db/resource?path=${serDoc}`, auth }).then(response => {
+        expect(response.body.content).to.contain('<a>1</a>');
+      });
+    });
+
+    it('indent=yes pretty-prints; indent=no does not', () => {
+      cy.request({ url: `/api/db/resource?path=${serDoc}&indent=yes`, auth }).then(response => {
+        expect(response.body.content).to.match(/<root>\s*\n\s+<a>1<\/a>/);
+      });
+      cy.request({ url: `/api/db/resource?path=${serDoc}&indent=no`, auth }).then(response => {
+        expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
+      });
+    });
+
+    it('indent tolerates true/false as well as yes/no', () => {
+      cy.request({ url: `/api/db/resource?path=${serDoc}&indent=true`, auth }).then(response => {
+        expect(response.body.content).to.match(/<a>1<\/a>/);
+        expect(response.body.content).to.include('\n');
+      });
+      cy.request({ url: `/api/db/resource?path=${serDoc}&indent=false`, auth }).then(response => {
+        expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
+      });
+    });
+
+    it('omit-xml-declaration=no includes the XML declaration; =yes omits it', () => {
+      cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=no`, auth }).then(response => {
+        expect(response.body.content).to.match(/^<\?xml /);
+      });
+      cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=yes`, auth }).then(response => {
+        expect(response.body.content).to.not.match(/^<\?xml /);
+      });
+    });
+
+    it('serialization params do not affect binary resources', () => {
+      cy.request({
+        url: '/api/db/resource', method: 'PUT', auth,
+        body: { path: `${testCollection}/plain.txt`, content: 'hello', 'mime-type': 'text/plain' }
+      });
+      cy.request({ url: `/api/db/resource?path=${testCollection}/plain.txt&indent=yes`, auth }).then(response => {
+        expect(response.body.binary).to.eq(true);
+        expect(response.body.content).to.eq('hello');
+      });
+    });
+  });
+
   // Gap features folded into db-core (audit §2 items 2–6): writable flag and
   // start/count pagination on list (always-on), runPath always on get-resource,
   // meta=full single-call content+metadata, and set-MIME via /permissions.
