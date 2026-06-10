@@ -26,6 +26,43 @@ declare variable $db:protected-paths := (
 );
 
 (:~
+ : Resource-name encoding boundary.
+ :
+ : This API speaks DECODED UTF-8 on the wire, both directions: a client (and its
+ : user) sees and sends "café.xml", never "caf%C3%A9.xml". But eXist stores names
+ : percent-encoded, and doc()/collection()/xmldb:*-available plus the xmldb:* write
+ : functions all resolve against that stored form. So names cross two boundaries:
+ :
+ :   - db:to-stored : an incoming wire path -> the stored form, applied once at the
+ :     top of every handler before any database call. It uses fn:iri-to-uri, which
+ :     is the SAME escaping eXist's storage layer applies (AnyURIValue / escape-uri
+ :     with escape-reserved=false): it percent-encodes spaces and non-ASCII but
+ :     leaves sub-delims (' & + @ ( )) and existing %XX untouched. That matters:
+ :       * it exactly matches how xmldb:store wrote the name, so the round trip is
+ :         lossless for non-ASCII AND for the literal-sub-delim names xmldb:store
+ :         leaves un-encoded (e.g. "quote'name.xml"); and
+ :       * it is idempotent on already-encoded input, so older clients that still
+ :         send "caf%C3%A9.xml" keep working (no double-encoding).
+ :     (This is intentionally NOT xmldb:encode/encode-uri, which would full RFC-3986
+ :     encode the sub-delims and so fail to find names xmldb:store left literal.)
+ :
+ :   - db:to-display : a stored path/name -> the wire (decoded) form, applied to
+ :     every name and path leaving the API. Inverse of the %XX encoding above.
+ :)
+declare %private function db:to-stored($path as xs:string?) as xs:string? {
+    if (empty($path)) then $path else fn:iri-to-uri($path)
+};
+
+declare %private function db:to-display($path as xs:string?) as xs:string? {
+    if (empty($path)) then $path
+    else string-join(
+        for $segment in tokenize($path, "/")
+        return if ($segment eq "") then "" else xmldb:decode-uri(xs:anyURI($segment)),
+        "/"
+    )
+};
+
+(:~
  : Convert a glob pattern to a regex.
  : Supports *, ?, and character classes [...].
  :)
@@ -66,8 +103,8 @@ declare %private function db:get-collection-info($path as xs:string) as map(*) {
     let $perms := db:get-permissions($path)
     return map {
         "type": "collection",
-        "name": $name,
-        "path": $path,
+        "name": db:to-display($name),
+        "path": db:to-display($path),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
@@ -86,8 +123,8 @@ declare %private function db:get-resource-info($collection as xs:string, $resour
     let $perms := db:get-permissions($path)
     return map {
         "type": "resource",
-        "name": $resource,
-        "path": $path,
+        "name": db:to-display($resource),
+        "path": db:to-display($path),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
@@ -151,7 +188,7 @@ declare %private function db:list-recursive(
  :   collections-only - only list collections (default: false)
  :)
 declare function db:list($request as map(*)) {
-    let $path := string(($request?parameters?path, "/db")[1])
+    let $path := db:to-stored(string(($request?parameters?path, "/db")[1]))
     let $recursive := string($request?parameters?recursive) = "true"
     let $depth := xs:integer(($request?parameters?depth, 0)[1])
     let $glob := $request?parameters?glob
@@ -159,7 +196,7 @@ declare function db:list($request as map(*)) {
     let $glob-regex := if (exists($glob) and $glob ne "") then db:glob-to-regex($glob) else ""
     return
         if (not(xmldb:collection-available($path)))
-        then roaster:response(404, map { "error": "Collection not found: " || $path })
+        then roaster:response(404, map { "error": "Collection not found: " || db:to-display($path) })
         else if ($recursive)
         then db:list-recursive($path, 1, $depth, $glob-regex, $collections-only)
         else
@@ -189,17 +226,17 @@ declare function db:list($request as map(*)) {
  : GET /api/db/resource?path=/db/apps/myapp/index.xq
  :)
 declare function db:get-resource($request as map(*)) {
-    let $path := $request?parameters?path
+    let $path := db:to-stored($request?parameters?path)
     return
         if (empty($path))
         then map { "error": "Missing required parameter: path" }
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
-        then roaster:response(404, map { "error": "Resource not found: " || $path })
+        then roaster:response(404, map { "error": "Resource not found: " || db:to-display($path) })
         else if (util:binary-doc-available($path))
         then
             let $data := util:binary-doc($path)
             return map {
-                "path": $path,
+                "path": db:to-display($path),
                 "binary": true(),
                 "content": util:binary-to-string($data),
                 "mime-type": xmldb:get-mime-type(xs:anyURI($path))
@@ -207,7 +244,7 @@ declare function db:get-resource($request as map(*)) {
         else
             let $doc := doc($path)
             return map {
-                "path": $path,
+                "path": db:to-display($path),
                 "binary": false(),
                 "content": serialize($doc),
                 "mime-type": xmldb:get-mime-type(xs:anyURI($path))
@@ -243,7 +280,7 @@ declare %private function db:get-run-path($path as xs:string) as xs:string {
 
 declare function db:store-resource($request as map(*)) {
     let $body := $request?body
-    let $path := $body?path
+    let $path := db:to-stored($body?path)
     let $content := $body?content
     (: Explicit mime from the client wins. When omitted we pass through to
      : the 3-arg xmldb:store, which calls MimeTable.getContentTypeFor() on
@@ -258,7 +295,7 @@ declare function db:store-resource($request as map(*)) {
         if (empty($path) or empty($content))
         then roaster:response(400, map { "error": "Missing required fields: path, content" })
         else if (not(db:under-db($path)))
-        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
+        then roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($path) })
         else
             let $collection := replace($path, "/[^/]+$", "")
             let $resource := replace($path, "^.*/", "")
@@ -275,7 +312,7 @@ declare function db:store-resource($request as map(*)) {
                     return roaster:response(
                         if ($is-new) then 201 else 200,
                         map {
-                            "stored": $stored,
+                            "stored": db:to-display($stored),
                             "runPath": db:get-run-path($stored)
                         }
                     )
@@ -318,21 +355,21 @@ declare %private function db:under-db($path as xs:string?) as xs:boolean {
  : DELETE /api/db/resource?path=...
  :)
 declare function db:remove-resource($request as map(*)) {
-    let $path := $request?parameters?path
+    let $path := db:to-stored($request?parameters?path)
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required parameter: path" })
         else if (not(db:under-db($path)))
-        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
+        then roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($path) })
         else if (db:is-protected($path))
-        then roaster:response(403, map { "error": "Cannot delete protected path: " || $path })
+        then roaster:response(403, map { "error": "Cannot delete protected path: " || db:to-display($path) })
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
-        then roaster:response(404, map { "error": "Resource not found: " || $path })
+        then roaster:response(404, map { "error": "Resource not found: " || db:to-display($path) })
         else
             let $collection := replace($path, "/[^/]+$", "")
             let $resource := replace($path, "^.*/", "")
             let $_ := xmldb:remove($collection, $resource)
-            return map { "removed": $path }
+            return map { "removed": db:to-display($path) }
 };
 
 (:~
@@ -340,17 +377,17 @@ declare function db:remove-resource($request as map(*)) {
  : POST /api/db/collection
  :)
 declare function db:create-collection($request as map(*)) {
-    let $path := $request?body?path
+    let $path := db:to-stored($request?body?path)
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required field: path" })
         else if (not(db:under-db($path)))
-        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
+        then roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($path) })
         else
             let $parent := replace($path, "/[^/]+$", "")
             let $name := replace($path, "^.*/", "")
             let $created := xmldb:create-collection($parent, $name)
-            return roaster:response(201, map { "created": $created })
+            return roaster:response(201, map { "created": db:to-display($created) })
 };
 
 (:~
@@ -362,27 +399,27 @@ declare function db:create-collection($request as map(*)) {
  :   force - if true, delete even if non-empty (default: false)
  :)
 declare function db:remove-collection($request as map(*)) {
-    let $path := $request?parameters?path
+    let $path := db:to-stored($request?parameters?path)
     let $force := string($request?parameters?force) = "true"
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required parameter: path" })
         else if (not(db:under-db($path)))
-        then roaster:response(400, map { "error": "Path must be under /db: " || $path })
+        then roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($path) })
         else if (db:is-protected($path))
-        then roaster:response(403, map { "error": "Cannot delete protected path: " || $path })
+        then roaster:response(403, map { "error": "Cannot delete protected path: " || db:to-display($path) })
         else if (not(xmldb:collection-available($path)))
-        then roaster:response(404, map { "error": "Collection not found: " || $path })
+        then roaster:response(404, map { "error": "Collection not found: " || db:to-display($path) })
         else
             let $has-children :=
                 exists(xmldb:get-child-collections($path))
                 or exists(xmldb:get-child-resources($path))
             return
                 if ($has-children and not($force))
-                then roaster:response(409, map { "error": "Collection is not empty: " || $path || ". Use force=true to delete recursively." })
+                then roaster:response(409, map { "error": "Collection is not empty: " || db:to-display($path) || ". Use force=true to delete recursively." })
                 else
                     let $_ := xmldb:remove($path)
-                    return map { "removed": $path }
+                    return map { "removed": db:to-display($path) }
 };
 
 (:~
@@ -421,10 +458,10 @@ declare %private function db:exists-at($path as xs:string?) as xs:boolean {
 
 declare function db:move($request as map(*)) {
     let $body := $request?body
-    let $source := $body?source
-    let $parent := $body?parent
-    let $name := $body?name
-    let $newName := $body?newName
+    let $source := db:to-stored($body?source)
+    let $parent := db:to-stored($body?parent)
+    let $name := db:to-stored($body?name)
+    let $newName := db:to-stored($body?newName)
     let $src-parent := if (exists($source)) then replace($source, "/[^/]+$", "") else ()
     let $src-leaf := if (exists($source)) then replace($source, "^.*/", "") else ()
     let $dest-parent := ($parent, $src-parent)[1]
@@ -437,16 +474,16 @@ declare function db:move($request as map(*)) {
         if (empty($source)) then
             roaster:response(400, map { "error": "Missing required field: source" })
         else if (not(db:under-db($source))) then
-            roaster:response(400, map { "error": "Path must be under /db: " || $source })
+            roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($source) })
         else if (not(db:exists-at($source))) then
-            roaster:response(404, map { "error": "Source not found: " || $source })
+            roaster:response(404, map { "error": "Source not found: " || db:to-display($source) })
         else if (empty($parent) and empty($newName)) then
             roaster:response(400, map { "error": "Missing required field: parent or newName" })
         else if (exists($parent) and not(db:under-db($parent))) then
-            roaster:response(400, map { "error": "Path must be under /db: " || $parent })
+            roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($parent) })
         else if (exists($parent) and not(xmldb:collection-available($parent))) then
             roaster:response(400, map {
-                "error": "Destination parent collection does not exist: " || $parent
+                "error": "Destination parent collection does not exist: " || db:to-display($parent)
             })
         else if (
             $dest-path ne $source
@@ -462,7 +499,7 @@ declare function db:move($request as map(*)) {
              : Conflict so the client can confirm before destroying it.
              : Closes the silent-overwrite branch of #37. :)
             roaster:response(409, map {
-                "error": "Destination already exists: " || $dest-path ||
+                "error": "Destination already exists: " || db:to-display($dest-path) ||
                          ". Remove it first or choose a different name."
             })
         else
@@ -482,7 +519,7 @@ declare function db:move($request as map(*)) {
                     let $_ := if ($dest-name ne $src-leaf)
                               then xmldb:rename($intermediate, $dest-name)
                               else ()
-                    return map { "moved": $source, "to": $dest-path }
+                    return map { "moved": db:to-display($source), "to": db:to-display($dest-path) }
                 else
                     let $_ := if ($dest-parent ne $src-parent)
                               then xmldb:move($src-parent, $dest-parent, $src-leaf)
@@ -490,12 +527,12 @@ declare function db:move($request as map(*)) {
                     let $_ := if ($dest-name ne $src-leaf)
                               then xmldb:rename($dest-parent, $src-leaf, $dest-name)
                               else ()
-                    return map { "moved": $source, "to": $dest-path }
+                    return map { "moved": db:to-display($source), "to": db:to-display($dest-path) }
             } catch * {
                 roaster:response(500, map {
                     "error": "Move failed mid-operation: " || $err:description,
-                    "source": $source,
-                    "attempted-destination": $dest-path,
+                    "source": db:to-display($source),
+                    "attempted-destination": db:to-display($dest-path),
                     "note": "Inspect source and destination paths — partial state may exist."
                 })
             }
@@ -529,10 +566,10 @@ declare function db:move($request as map(*)) {
  :)
 declare function db:copy($request as map(*)) {
     let $body := $request?body
-    let $source := $body?source
-    let $parent := $body?parent
-    let $name := $body?name
-    let $newName := $body?newName
+    let $source := db:to-stored($body?source)
+    let $parent := db:to-stored($body?parent)
+    let $name := db:to-stored($body?name)
+    let $newName := db:to-stored($body?newName)
     let $src-parent := replace($source, "/[^/]+$", "")
     let $src-leaf := replace($source, "^.*/", "")
     let $source-exists :=
@@ -543,16 +580,16 @@ declare function db:copy($request as map(*)) {
         if (empty($source)) then
             roaster:response(400, map { "error": "Missing required field: source" })
         else if (not(db:under-db($source))) then
-            roaster:response(400, map { "error": "Path must be under /db: " || $source })
+            roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($source) })
         else if (not($source-exists)) then
-            roaster:response(404, map { "error": "Source not found: " || $source })
+            roaster:response(404, map { "error": "Source not found: " || db:to-display($source) })
         else if (empty($parent) and empty($newName)) then
             roaster:response(400, map { "error": "Missing required field: parent or newName" })
         else if (exists($parent) and not(db:under-db($parent))) then
-            roaster:response(400, map { "error": "Path must be under /db: " || $parent })
+            roaster:response(400, map { "error": "Path must be under /db: " || db:to-display($parent) })
         else if (exists($parent) and not(xmldb:collection-available($parent))) then
             roaster:response(400, map {
-                "error": "Destination parent collection does not exist: " || $parent
+                "error": "Destination parent collection does not exist: " || db:to-display($parent)
             })
         else
             let $dest-parent := if (exists($parent)) then $parent else $src-parent
@@ -582,7 +619,7 @@ declare function db:copy($request as map(*)) {
                      : surface this as a 409 Conflict so the client can
                      : confirm before proceeding. :)
                     roaster:response(409, map {
-                        "error": "Destination already exists: " || $dest-path ||
+                        "error": "Destination already exists: " || db:to-display($dest-path) ||
                                  ". Remove it first or choose a different name."
                     })
                 else
@@ -593,7 +630,7 @@ declare function db:copy($request as map(*)) {
                                 let $_ := if ($dest-name ne $src-leaf)
                                           then xmldb:rename($dest-parent || "/" || $src-leaf, $dest-name)
                                           else ()
-                                return map { "copied": $source, "to": $dest-path }
+                                return map { "copied": db:to-display($source), "to": db:to-display($dest-path) }
                             else
                                 (: Same-parent collection copy: stage → rename → move back. :)
                                 let $stage-name := "__copy-stage-" || util:uuid()
@@ -603,15 +640,15 @@ declare function db:copy($request as map(*)) {
                                 let $_ := xmldb:rename($stage || "/" || $src-leaf, $dest-name)
                                 let $_ := xmldb:move($stage || "/" || $dest-name, $src-parent)
                                 let $_ := xmldb:remove($stage)
-                                return map { "copied": $source, "to": $dest-path }
+                                return map { "copied": db:to-display($source), "to": db:to-display($dest-path) }
                         else
                             let $_ := xmldb:copy-resource($src-parent, $src-leaf, $dest-parent, $dest-name)
-                            return map { "copied": $source, "to": $dest-path }
+                            return map { "copied": db:to-display($source), "to": db:to-display($dest-path) }
                     } catch * {
                         roaster:response(500, map {
                             "error": "Copy failed mid-operation: " || $err:description,
-                            "source": $source,
-                            "attempted-destination": $dest-path,
+                            "source": db:to-display($source),
+                            "attempted-destination": db:to-display($dest-path),
                             "note": "Inspect destination path — partial state may exist."
                         })
                     }
@@ -622,7 +659,7 @@ declare function db:copy($request as map(*)) {
  : GET /api/db/properties?path=...
  :)
 declare function db:properties($request as map(*)) {
-    let $path := $request?parameters?path
+    let $path := db:to-stored($request?parameters?path)
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required parameter: path" })
@@ -630,7 +667,7 @@ declare function db:properties($request as map(*)) {
         then
             let $perms := db:get-permissions($path)
             return map {
-                "path": $path,
+                "path": db:to-display($path),
                 "type": "collection",
                 "owner": $perms?owner,
                 "group": $perms?group,
@@ -645,7 +682,7 @@ declare function db:properties($request as map(*)) {
             let $perms := db:get-permissions($path)
             return
                 map {
-                    "path": $path,
+                    "path": db:to-display($path),
                     "type": "resource",
                     "owner": $perms?owner,
                     "group": $perms?group,
@@ -657,7 +694,7 @@ declare function db:properties($request as map(*)) {
                     "last-modified": string(xmldb:last-modified($collection, $resource))
                 }
         else
-            roaster:response(404, map { "error": "Not found: " || $path })
+            roaster:response(404, map { "error": "Not found: " || db:to-display($path) })
 };
 
 (:~
@@ -666,7 +703,7 @@ declare function db:properties($request as map(*)) {
  :)
 declare function db:set-permissions($request as map(*)) {
     let $body := $request?body
-    let $path := $body?path
+    let $path := db:to-stored($body?path)
     return
         if (empty($path))
         then roaster:response(400, map { "error": "Missing required field: path" })
@@ -676,7 +713,7 @@ declare function db:set-permissions($request as map(*)) {
                 if ($body?group) then sm:chgrp(xs:anyURI($path), $body?group) else (),
                 if ($body?mode) then sm:chmod(xs:anyURI($path), $body?mode) else ()
             )
-            return map { "updated": $path }
+            return map { "updated": db:to-display($path) }
 };
 
 (:~
@@ -687,7 +724,7 @@ declare function db:set-permissions($request as map(*)) {
  : When timestamp is provided, only returns resources modified after that time.
  :)
 declare function db:sync($request as map(*)) {
-    let $root := string(($request?parameters?root, "/db")[1])
+    let $root := db:to-stored(string(($request?parameters?root, "/db")[1]))
     let $timestamp-param := $request?parameters?timestamp
     let $timestamp :=
         if ($timestamp-param)
@@ -695,10 +732,10 @@ declare function db:sync($request as map(*)) {
         else ()
     return
         if (not(xmldb:collection-available($root)))
-        then roaster:response(404, map { "error": "Collection not found: " || $root })
+        then roaster:response(404, map { "error": "Collection not found: " || db:to-display($root) })
         else
             map {
-                "root": $root,
+                "root": db:to-display($root),
                 "timestamp": string(current-dateTime()),
                 "children": db:sync-collection(xs:anyURI($root), $timestamp)
             }
@@ -715,7 +752,7 @@ declare %private function db:sync-collection(
         let $path := $root || "/" || $child
         order by $child
         return map {
-            "path": $child,
+            "path": db:to-display($child),
             "lastModified": string(xmldb:created($path)),
             "children": db:sync-collection(xs:anyURI($path), $timestamp)
         },
@@ -726,7 +763,7 @@ declare %private function db:sync-collection(
         where empty($timestamp) or ($last-modified > $timestamp)
         order by $resource
         return map {
-            "path": $resource,
+            "path": db:to-display($resource),
             "lastModified": string($last-modified)
         }
     }
@@ -740,7 +777,7 @@ declare %private function db:sync-collection(
  : and registered built-in modules.
  :)
 declare function db:modules($request as map(*)) {
-    let $path := $request?parameters?path
+    let $path := db:to-stored($request?parameters?path)
     let $prefix := $request?parameters?prefix
     let $imported-param := $request?parameters?uri
     let $imported :=
