@@ -1167,11 +1167,28 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "description": "1-based offset of the first child to return (flat listing only)",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "description": "Maximum number of children to return (flat listing only; default: all)",
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Collection metadata with children array",
+            "description": "Collection metadata with children array. Each item carries a `writable` flag (whether the caller may write to it). A flat (non-recursive) listing also carries `total` (full child count), `start` (1-based offset of this page) and `count` (items in this page).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1284,11 +1301,20 @@
               "type": "string"
             },
             "description": "Full DB path of the resource"
+          },
+          {
+            "name": "meta",
+            "in": "query",
+            "description": "Set to 'full' to flatten the resource's metadata (owner, group, mode, acl, size, created, last-modified) into the response alongside the content, sparing a separate /api/db/properties call",
+            "schema": {
+              "type": "string",
+              "enum": ["full"]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Resource content with metadata",
+            "description": "Resource content (always includes runPath). With meta=full, the resource's metadata fields are flattened in alongside the content.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2088,6 +2114,10 @@
                   "mode": {
                     "type": "string",
                     "description": "New permission mode (e.g. rwxr-xr-x)"
+                  },
+                  "mime": {
+                    "type": "string",
+                    "description": "New MIME (content) type for the resource (e.g. application/xml)"
                   }
                 }
               }

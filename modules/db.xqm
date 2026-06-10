@@ -59,7 +59,9 @@ declare function db:list($request as map(*)) {
                 "recursive": string($request?parameters?recursive) = "true",
                 "depth": xs:integer(($request?parameters?depth, 0)[1]),
                 "glob": $request?parameters?glob,
-                "collections-only": string($request?parameters?collections-only) = "true"
+                "collections-only": string($request?parameters?collections-only) = "true",
+                "start": $request?parameters?start,
+                "count": $request?parameters?count
             }
         )
     } catch * {
@@ -73,7 +75,10 @@ declare function db:list($request as map(*)) {
  :)
 declare function db:get-resource($request as map(*)) {
     try {
-        dbc:get-resource($request?parameters?path)
+        dbc:get-resource(
+            $request?parameters?path,
+            map { "meta": $request?parameters?meta }
+        )
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }

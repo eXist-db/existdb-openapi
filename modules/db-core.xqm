@@ -134,6 +134,10 @@ declare %private function dbc:get-collection-info($path as xs:string) as map(*) 
         "type": "collection",
         "name": dbc:to-display($name),
         "path": dbc:to-display($path),
+        (: writable: can THIS caller write here? — a file-browser affordance,
+         : evaluated authoritatively (mode + ACL + dba) by sm:has-access rather
+         : than left for the client to derive from the mode bits. :)
+        "writable": sm:has-access(xs:anyURI($path), "w"),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
@@ -154,6 +158,8 @@ declare %private function dbc:get-resource-info($collection as xs:string, $resou
         "type": "resource",
         "name": dbc:to-display($resource),
         "path": dbc:to-display($path),
+        (: see db-core:get-collection-info for the writable rationale :)
+        "writable": sm:has-access(xs:anyURI($path), "w"),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
@@ -209,7 +215,14 @@ declare %private function dbc:list-recursive(
  : List collection contents.
  : @param $wire-path collection path (wire/decoded form)
  : @param $opts { recursive: xs:boolean, depth: xs:integer (0 = unlimited),
- :                glob: xs:string?, collections-only: xs:boolean }
+ :                glob: xs:string?, collections-only: xs:boolean,
+ :                start: xs:integer? (1-based page offset, default 1),
+ :                count: xs:integer? (page size, default = all) }
+ : Every listed item carries a `writable` flag. The flat (non-recursive) listing
+ : carries pagination fields on the envelope — `total` (full child count before
+ : slicing), `start` (1-based offset of this page) and `count` (items in this
+ : page) — child collections then resources, sliced by start/count. Pagination
+ : does not apply to a recursive (tree) listing.
  : @error not-found if the collection does not exist
  :)
 declare function dbc:list($wire-path as xs:string, $opts as map(*)) as map(*) {
@@ -238,43 +251,86 @@ declare function dbc:list($wire-path as xs:string, $opts as map(*)) as map(*) {
                     where $glob-regex eq "" or matches($resource, $glob-regex)
                     order by $resource
                     return dbc:get-resource-info($path, $resource)
+            (: Pagination over the full ordered child sequence (collections then
+             : resources). start is 1-based; count defaults to "all" when absent. :)
+            let $all-children := ($child-collections, $resources)
+            let $total := count($all-children)
+            let $start := xs:integer(($opts?start, 1)[1])
+            let $count := $opts?count
+            let $page :=
+                if (exists($count))
+                then subsequence($all-children, $start, xs:integer($count))
+                else subsequence($all-children, $start)
             return map:merge((
                 $info,
                 map {
-                    "children": array { $child-collections, $resources }
+                    "total": $total,
+                    "start": $start,
+                    "count": count($page),
+                    "children": array { $page }
                 }
             ))
 };
 
 (:~
+ : Resource metadata (permissions + size/timestamps), excluding the path and
+ : mime-type that the content result already carries. These are the same keys
+ : db-core:properties returns for a resource, so a single metadata parser works
+ : across both /properties and a `meta=full` content read.
+ :)
+declare %private function dbc:resource-metadata($path as xs:string) as map(*) {
+    let $collection := replace($path, "/[^/]+$", "")
+    let $resource := replace($path, "^.*/", "")
+    let $perms := dbc:get-permissions($path)
+    return map {
+        "owner": $perms?owner,
+        "group": $perms?group,
+        "mode": $perms?mode,
+        "acl": $perms?acl,
+        "size": xmldb:size($collection, $resource),
+        "created": string(xmldb:created($collection, $resource)),
+        "last-modified": string(xmldb:last-modified($collection, $resource))
+    }
+};
+
+(:~
  : Get resource content.
  : @param $wire-path resource path (wire/decoded form)
+ : @param $opts { meta: "full"? } — when meta = "full", the resource's metadata
+ :        (owner, group, mode, acl, size, created, last-modified) is flattened
+ :        into the result alongside the content, sparing a second /properties
+ :        round trip. The result always carries `runPath` (the URL to execute a
+ :        stored resource).
  : @error not-found if the resource does not exist
  :)
-declare function dbc:get-resource($wire-path as xs:string?) as map(*) {
+declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as map(*) {
     let $path := dbc:to-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required parameter: path", map {})
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
         then dbc:error("not-found", "Resource not found: " || dbc:to-display($path), map {})
-        else if (util:binary-doc-available($path))
-        then
-            let $data := util:binary-doc($path)
-            return map {
-                "path": dbc:to-display($path),
-                "binary": true(),
-                "content": util:binary-to-string($data),
-                "mime-type": xmldb:get-mime-type(xs:anyURI($path))
-            }
         else
-            let $doc := doc($path)
-            return map {
-                "path": dbc:to-display($path),
-                "binary": false(),
-                "content": serialize($doc),
-                "mime-type": xmldb:get-mime-type(xs:anyURI($path))
-            }
+            let $base :=
+                if (util:binary-doc-available($path))
+                then map {
+                    "path": dbc:to-display($path),
+                    "binary": true(),
+                    "content": util:binary-to-string(util:binary-doc($path)),
+                    "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
+                    "runPath": dbc:get-run-path($path)
+                }
+                else map {
+                    "path": dbc:to-display($path),
+                    "binary": false(),
+                    "content": serialize(doc($path)),
+                    "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
+                    "runPath": dbc:get-run-path($path)
+                }
+            return
+                if ($opts?meta = "full")
+                then map:merge(($base, dbc:resource-metadata($path)))
+                else $base
 };
 
 (:~
@@ -702,8 +758,10 @@ declare function dbc:properties($wire-path as xs:string?) as map(*) {
 };
 
 (:~
- : Set permissions on a resource or collection.
- : @param $args { path, owner?, group?, mode? } (wire/decoded form)
+ : Set permissions (and optionally the MIME type) on a resource or collection.
+ : @param $args { path, owner?, group?, mode?, mime? } (wire/decoded form)
+ :        `mime` sets the resource's content type (xmldb:set-mime-type); applies
+ :        to resources, not collections.
  :)
 declare function dbc:set-permissions($args as map(*)) as map(*) {
     let $path := dbc:to-stored($args?path)
@@ -711,12 +769,22 @@ declare function dbc:set-permissions($args as map(*)) as map(*) {
         if (empty($path))
         then dbc:error("bad-request", "Missing required field: path", map {})
         else
-            let $_ := (
-                if ($args?owner) then sm:chown(xs:anyURI($path), $args?owner) else (),
-                if ($args?group) then sm:chgrp(xs:anyURI($path), $args?group) else (),
-                if ($args?mode) then sm:chmod(xs:anyURI($path), $args?mode) else ()
-            )
-            return map { "updated": dbc:to-display($path) }
+            (: A bad owner/group, malformed mode, or a mime incompatible with the
+             : resource's storage class (eXist only lets an XML-stored resource take
+             : an XML-class mime, and a binary resource a binary-class mime) makes
+             : the broker call throw — surface that as a clean bad-request rather
+             : than letting it become an undeclared 500. :)
+            try {
+                let $_ := (
+                    if ($args?owner) then sm:chown(xs:anyURI($path), $args?owner) else (),
+                    if ($args?group) then sm:chgrp(xs:anyURI($path), $args?group) else (),
+                    if ($args?mode) then sm:chmod(xs:anyURI($path), $args?mode) else (),
+                    if ($args?mime) then xmldb:set-mime-type(xs:anyURI($path), $args?mime) else ()
+                )
+                return map { "updated": dbc:to-display($path) }
+            } catch * {
+                dbc:error("bad-request", $err:description, map {})
+            }
 };
 
 (:~

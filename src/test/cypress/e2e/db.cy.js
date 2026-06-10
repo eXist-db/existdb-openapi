@@ -861,4 +861,96 @@ describe('/api/db', () => {
       });
     });
   });
+
+  // Gap features folded into db-core (audit §2 items 2–6): writable flag and
+  // start/count pagination on list (always-on), runPath always on get-resource,
+  // meta=full single-call content+metadata, and set-MIME via /permissions.
+  describe('db-core gap features (audit §2 items 2–6)', () => {
+    const gaps = `${testCollection}/gaps`;
+    const enc = p => encodeURIComponent(p);
+
+    before(() => {
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: testCollection } });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: gaps } });
+      ['a.xml', 'b.xml', 'c.xml'].forEach(n =>
+        cy.request({ url: '/api/db/resource', method: 'PUT', auth, body: { path: `${gaps}/${n}`, content: '<doc/>', 'mime-type': 'application/xml' } })
+      );
+    });
+
+    after(() => {
+      cy.request({ url: `/api/db/collection?path=${enc(gaps)}&force=true`, method: 'DELETE', auth, failOnStatusCode: false });
+    });
+
+    it('item 3 — every list item carries a writable boolean', () => {
+      cy.request({ url: `/api/db?path=${enc(gaps)}`, auth }).then(r => {
+        expect(r.body.children).to.have.length.greaterThan(0);
+        r.body.children.forEach(c => expect(c.writable, `writable on ${c.name}`).to.be.a('boolean'));
+      });
+    });
+
+    it('item 5 — flat listing carries total/start/count and the default is all children', () => {
+      cy.request({ url: `/api/db?path=${enc(gaps)}`, auth }).then(r => {
+        expect(r.body).to.have.property('total', 3);
+        expect(r.body).to.have.property('start', 1);
+        expect(r.body).to.have.property('count', 3);
+        expect(r.body.children).to.have.length(3);
+      });
+    });
+
+    it('item 5 — start/count slices the child sequence; total stays the full count', () => {
+      cy.request({ url: `/api/db?path=${enc(gaps)}&start=2&count=1`, auth }).then(r => {
+        expect(r.body.total).to.eq(3);
+        expect(r.body.start).to.eq(2);
+        expect(r.body.count).to.eq(1);
+        expect(r.body.children).to.have.length(1);
+        expect(r.body.children[0].name).to.eq('b.xml');
+      });
+    });
+
+    it('item 6 — get-resource always returns runPath', () => {
+      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}`, auth }).then(r => {
+        expect(r.body).to.have.property('runPath').that.is.a('string').and.match(/^\/exist\//);
+      });
+    });
+
+    it('item 2 — meta=full flattens metadata alongside the content', () => {
+      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}&meta=full`, auth }).then(r => {
+        // content fields still present
+        expect(r.body).to.have.property('content');
+        expect(r.body).to.have.property('runPath');
+        // metadata flattened in (same keys /properties returns for a resource)
+        ['owner', 'group', 'mode', 'acl', 'size', 'created', 'last-modified'].forEach(k =>
+          expect(r.body, `meta key ${k}`).to.have.property(k)
+        );
+      });
+    });
+
+    it('item 2 — without meta=full the metadata keys are absent (default unchanged)', () => {
+      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}`, auth }).then(r => {
+        expect(r.body).to.not.have.property('owner');
+        expect(r.body).to.not.have.property('last-modified');
+      });
+    });
+
+    it('item 4 — set MIME type via POST /api/db/permissions (compatible class)', () => {
+      // a.xml is stored as XML, so a compatible (XML-class) mime is accepted
+      const path = `${gaps}/a.xml`;
+      cy.request({ url: '/api/db/permissions', method: 'POST', auth, body: { path, mime: 'text/html' } })
+        .then(r => expect(r.status).to.eq(200));
+      cy.request({ url: `/api/db/properties?path=${enc(path)}`, auth }).then(r => {
+        expect(r.body['mime-type']).to.eq('text/html');
+      });
+    });
+
+    it('item 4 — a mime incompatible with the resource storage class is a clean 400', () => {
+      // eXist forbids a binary-class mime on an XML-stored resource; surface 400, not 500
+      cy.request({
+        url: '/api/db/permissions', method: 'POST', auth, failOnStatusCode: false,
+        body: { path: `${gaps}/b.xml`, mime: 'application/json' }
+      }).then(r => {
+        expect(r.status).to.eq(400);
+        expect(r.body).to.have.property('error');
+      });
+    });
+  });
 });
