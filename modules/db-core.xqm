@@ -22,7 +22,12 @@ xquery version "3.1";
  :)
 module namespace dbc = "http://exist-db.org/api/db-core";
 
-import module namespace dbutil="http://exist-db.org/api/dbutils" at "dbutils.xqm";
+(: dbutils is imported by namespace (no `at` hint) so this module resolves both
+ : when loaded relatively (inside existdb-openapi) and when loaded by a consumer
+ : via db-core's public-module registration, where a relative hint has no base
+ : URI. Both db-core and dbutils are registered as public XQuery modules in
+ : xar-assembly.xml. :)
+import module namespace dbutil="http://exist-db.org/api/dbutils";
 
 declare namespace sm="http://exist-db.org/xquery/securitymanager";
 declare namespace expath="http://expath.org/ns/pkg";
