@@ -1012,10 +1012,13 @@ describe('/api/db', () => {
       cy.request({ url: `/api/db/collection?path=${enc(gaps)}&force=true`, method: 'DELETE', auth, failOnStatusCode: false });
     });
 
-    it('item 3 — every list item carries a writable boolean', () => {
+    it('item 3 — every list item carries a writable boolean; resources carry mime-type', () => {
       cy.request({ url: `/api/db?path=${enc(gaps)}`, auth }).then(r => {
         expect(r.body.children).to.have.length.greaterThan(0);
         r.body.children.forEach(c => expect(c.writable, `writable on ${c.name}`).to.be.a('boolean'));
+        r.body.children.filter(c => c.type === 'resource').forEach(c =>
+          expect(c, `mime-type on ${c.name}`).to.have.property('mime-type').that.is.a('string')
+        );
       });
     });
 

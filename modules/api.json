@@ -1344,7 +1344,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Collection metadata with children array. Each item carries a `writable` flag (whether the caller may write to it). A flat (non-recursive) listing also carries `total` (full child count), `start` (1-based offset of this page) and `count` (items in this page).",
+            "description": "Collection metadata with children array. Each item carries a `writable` flag (whether the caller may write to it); resource items also carry `mime-type`. A flat (non-recursive) listing also carries `total` (full child count), `start` (1-based offset of this page) and `count` (items in this page).",
             "content": {
               "application/json": {
                 "schema": {
