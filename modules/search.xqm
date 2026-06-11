@@ -21,6 +21,9 @@ xquery version "3.1";
 module namespace search="http://exist-db.org/api/search";
 
 import module namespace site="http://exist-db.org/api/site" at "site.xqm";
+(: FLS policy only (no ft:fields) — so /api/search compiles on a stock eXist :)
+import module namespace fpol="http://exist-db.org/api/search/field-policy" at "field-policy.xqm";
+import module namespace roaster="http://e-editiones.org/roaster";
 import module namespace kwic="http://exist-db.org/xquery/kwic";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
@@ -45,6 +48,16 @@ declare variable $search:title-boost := 3;
  :)
 declare %private function search:escape($q as xs:string) as xs:string {
     replace($q, '([+\-&amp;|!(){}\[\]\^"~*?:\\/])', '\\$1')
+};
+
+(:~
+ : Escape a Lucene FIELD NAME for use as a field selector in a query string. A
+ : field name may itself contain a colon (e.g. the xqdoc:function discovery
+ : fields); escape the colon and backslash so the parser reads the whole name as
+ : the field, with the separating colon added by the caller.
+ :)
+declare %private function search:field-selector($field as xs:string) as xs:string {
+    replace($field, '([:\\])', '\\$1')
 };
 
 (:~
@@ -101,17 +114,34 @@ declare function search:query($request as map(*)) {
     let $q := $request?parameters?q
     let $app-filter := $request?parameters?app
     let $section-filter := $request?parameters?section
+    (: field: restrict the query to one named field (a /api/search/fields field
+       value). scope: collection path(s) to search under, recursive (defaults to
+       the sitewide /db/apps). Both optional; omitting them is today's behavior. :)
+    let $field := $request?parameters?field[. ne ""]
+    let $scope :=
+        if (exists($request?parameters?scope[. ne ""]))
+        then $request?parameters?scope[. ne ""]
+        else "/db/apps"
+    let $user := $request?user
+    let $groups := ($user?groups, "guest")
+    let $is-dba := ($user?dba, false())[1]
     let $limit := ($request?parameters?limit, 20)[1] cast as xs:integer
     let $offset := ($request?parameters?offset, 0)[1] cast as xs:integer
     return
         if (empty($q) or $q = "")
         then map { "error": "Missing required parameter: q" }
+        else if (exists($field) and not(fpol:visible($field, $groups, $is-dba)))
+        (: Field-level security: the same policy /api/search/fields applies — a
+           field the caller may not see must not be queryable from this connection. :)
+        then roaster:response(403, "application/json", map { "error": "Field not available: " || $field })
         else
             let $escaped := search:escape($q)
-            (: Field-scoped query string: body + boosted title. Scope to the
-               shared field so only contributing result-units match. :)
+            (: Query string. With ?field, restrict to that one field; otherwise the
+               default shared-field query (body + boosted title). :)
             let $query-string :=
-                "site-content:(" || $escaped || ") OR site-title:(" || $escaped || ")^" || $search:title-boost
+                if (exists($field))
+                then search:field-selector($field) || ":(" || $escaped || ")"
+                else "site-content:(" || $escaped || ") OR site-title:(" || $escaped || ")^" || $search:title-boost
             (: Facet drill-down filters (app/section) — narrow without leaving
                the shared field; ES "filter context". :)
             let $facet-filter :=
@@ -130,8 +160,9 @@ declare function search:query($request as map(*)) {
                     if (map:size($facet-filter) gt 0) then map { "facets": $facet-filter } else ()
                 ))
             (: Match at document-root level (collection(…)/*) — a single-step
-               axis preserves ft:score for field queries, unlike //*. :)
-            let $hits := collection("/db/apps")/*[ft:query(., $query-string, $options)]
+               axis preserves ft:score for field queries, unlike //*. Scope is the
+               caller's ?scope (recursive) or the sitewide default. :)
+            let $hits := collection($scope)/*[ft:query(., $query-string, $options)]
             (: Facet counts (computed while the Lucene context is intact). :)
             let $facets :=
                 map {

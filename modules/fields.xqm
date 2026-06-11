@@ -24,6 +24,10 @@ xquery version "3.1";
  :)
 module namespace fields = "http://exist-db.org/api/search/fields";
 
+(: FLS policy lives in its own module (no ft:fields dependency) so /api/search can
+ : enforce the same who-sees-what without transitively pulling ft:fields. :)
+import module namespace fpol = "http://exist-db.org/api/search/field-policy" at "field-policy.xqm";
+
 declare namespace output = "http://www.w3.org/2010/xslt-xquery-serialization";
 
 declare option output:method "json";
@@ -31,21 +35,6 @@ declare option output:media-type "application/json";
 
 (:~ Default scope when the caller doesn't specify one. :)
 declare variable $fields:default-scope as xs:string := "/db/apps";
-
-(:~
- : FLS policy.
- :  - $fields:public    : visible to everyone, including the unauthenticated guest.
- :  - $fields:restricted: field -> the group(s) (any one grants) that may see it;
- :                        a dba always may.
- :  - any field that is neither public nor restricted is visible to any
- :    AUTHENTICATED (non-guest) caller.
- : This is the single place "who sees what" is decided — there are no per-field
- : ACLs in the index. Tune here as new fields/consumers appear.
- :)
-declare variable $fields:public as xs:string+ :=
-    ("site-content", "site-title", "site-url", "site-app", "site-section");
-declare variable $fields:restricted as map(*) :=
-    map { (: "internal-notes": ("editors", "dba") :) };
 
 (:~
  : CATALOG — the full field/facet set configured under $scope, via native
@@ -88,17 +77,6 @@ declare %private function fields:dedup($cat as map(*)*) as map(*)* {
     ))
 };
 
-(:~ FLS: may a caller with these groups (and dba flag) see $field? :)
-declare %private function fields:visible(
-    $field as xs:string, $groups as xs:string*, $is-dba as xs:boolean
-) as xs:boolean {
-    if ($is-dba) then true()
-    else if (map:contains($fields:restricted, $field))
-    then (some $g in $groups satisfies $g = $fields:restricted($field))
-    else if ($field = $fields:public) then true()
-    else (: neither public nor restricted -> any authenticated (non-guest) caller :)
-        exists($groups[. ne "guest"])
-};
 
 (:~
  : Discover the searchable fields under $scope visible to $user.
@@ -110,7 +88,7 @@ declare function fields:discover($scope as xs:string*, $user as map(*)?) as map(
     let $groups := ($user?groups, "guest")
     let $is-dba := ($user?dba, false())[1]
     let $catalog := fields:dedup(fields:catalog($scope))
-    let $visible := $catalog[fields:visible(?field, $groups, $is-dba)]
+    let $visible := $catalog[fpol:visible(?field, $groups, $is-dba)]
     return map {
         "scope": array { $scope },
         "user": $name,
