@@ -118,9 +118,14 @@ declare function search:query($request as map(*)) {
        value). scope: collection path(s) to search under, recursive (defaults to
        the sitewide /db/apps). Both optional; omitting them is today's behavior. :)
     let $field := $request?parameters?field[. ne ""]
+    (: roaster hands a repeatable (array-typed) query param back as an XQuery
+       array(*) when several values are given, or an atomic when one is — unwrap
+       to a plain sequence either way. :)
+    let $scope-list := let $raw := $request?parameters?scope
+                       return if ($raw instance of array(*)) then $raw?* else $raw
     let $scope :=
-        if (exists($request?parameters?scope[. ne ""]))
-        then $request?parameters?scope[. ne ""]
+        if (exists($scope-list[. ne ""]))
+        then $scope-list[. ne ""]
         else "/db/apps"
     let $user := $request?user
     let $groups := ($user?groups, "guest")
@@ -142,33 +147,55 @@ declare function search:query($request as map(*)) {
                 if (exists($field))
                 then search:field-selector($field) || ":(" || $escaped || ")"
                 else "site-content:(" || $escaped || ") OR site-title:(" || $escaped || ")^" || $search:title-boost
-            (: Facet drill-down filters (app/section) — narrow without leaving
-               the shared field; ES "filter context". :)
+            (: Facet filter — ES post_filter semantics: selecting a value narrows the
+               returned HITS but NOT the bucket counts, so the counts reflect the base
+               query and stay stable as the user drills. Sources: ?facet=<dim>:<value>
+               (repeatable; same dim -> OR, different dims -> AND) plus the app/section
+               shortcuts (= site-app / site-section). :)
+            let $facet-list := let $raw := $request?parameters?facet
+                               return if ($raw instance of array(*)) then $raw?* else $raw
+            let $facet-pairs := (
+                for $f in $facet-list[. ne ""]
+                let $d := substring-before($f, ":")
+                let $v := substring-after($f, ":")
+                where $d ne "" and $v ne ""
+                return map { "d": $d, "v": $v },
+                if (exists($app-filter) and $app-filter ne "") then map { "d": "site-app", "v": $app-filter } else (),
+                if (exists($section-filter) and $section-filter ne "") then map { "d": "site-section", "v": $section-filter } else ()
+            )
+            (: group values by dimension. NB: avoid ?key in predicates/simple-maps
+               (e.g. $pairs[?d = $x]) — eXist mis-handles the cardinality (fine for
+               one item, XPTY0004 for several); bind $p and look up explicitly. :)
+            let $facet-dims := distinct-values(for $p in $facet-pairs return $p?d)
             let $facet-filter :=
-                map:merge((
-                    if (exists($app-filter) and $app-filter ne "") then map { "site-app": $app-filter } else (),
-                    if (exists($section-filter) and $section-filter ne "") then map { "site-section": $section-filter } else ()
-                ))
-            let $options :=
-                map:merge((
-                    map {
-                        "default-operator": "and",
-                        "filter-rewrite": "yes",
-                        (: load the producer's display fields so ft:field can return them :)
-                        "fields": ("site-title", "site-url")
-                    },
-                    if (map:size($facet-filter) gt 0) then map { "facets": $facet-filter } else ()
-                ))
-            (: Match at document-root level (collection(…)/*) — a single-step
-               axis preserves ft:score for field queries, unlike //*. Scope is the
-               caller's ?scope (recursive) or the sitewide default. :)
-            let $hits := collection($scope)/*[ft:query(., $query-string, $options)]
-            (: Facet counts (computed while the Lucene context is intact). :)
+                map:merge(
+                    for $d in $facet-dims
+                    let $vals := distinct-values(for $p in $facet-pairs where $p?d eq $d return $p?v)
+                    return map { $d: $vals }
+                )
+            let $base-options :=
+                map {
+                    "default-operator": "and",
+                    "filter-rewrite": "yes",
+                    (: load the producer's display fields so ft:field can return them :)
+                    "fields": ("site-title", "site-url")
+                }
+            (: Base result set (no facet filter) — drives the stable facet counts.
+               Match at document-root level (collection(…)/*): a single-step axis
+               preserves ft:score for field queries, unlike //*. Scope is the caller's
+               ?scope (recursive) or the sitewide default. :)
+            let $base-hits := collection($scope)/*[ft:query(., $query-string, $base-options)]
             let $facets :=
                 map {
-                    "site-app": search:facet-counts($hits, "site-app"),
-                    "site-section": search:facet-counts($hits, "site-section")
+                    "site-app": search:facet-counts($base-hits, "site-app"),
+                    "site-section": search:facet-counts($base-hits, "site-section")
                 }
+            (: Post-filter: when a facet is selected, narrow the hits via Lucene
+               drill-down; otherwise the hits are the base set. :)
+            let $hits :=
+                if (map:size($facet-filter) gt 0)
+                then collection($scope)/*[ft:query(., $query-string, map:put($base-options, "facets", $facet-filter))]
+                else $base-hits
             (: Rank by score, dedup per document (highest-scoring hit wins). :)
             let $ranked :=
                 for $hit in $hits

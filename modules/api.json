@@ -3598,9 +3598,19 @@
             "name": "scope",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "array",
+              "items": { "type": "string" }
             },
             "description": "Collection path(s) to search under, recursive (defaults to the sitewide /db/apps). Same scope semantics as GET /api/search/fields; may be repeated to search several collections."
+          },
+          {
+            "name": "facet",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": "Facet drill-down filter, '<dimension>:<value>' (e.g. site-app:docs). Repeatable: the same dimension repeated combines with OR, different dimensions with AND. ES post_filter semantics — selecting a value narrows the returned results but the facet bucket counts stay stable (they reflect the base query). The app/section parameters are shortcuts for facet=site-app:… / facet=site-section:…"
           }
         ],
         "responses": {
