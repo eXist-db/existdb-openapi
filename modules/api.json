@@ -1513,7 +1513,7 @@
           {
             "name": "meta",
             "in": "query",
-            "description": "Set to 'full' to flatten the resource's metadata (owner, group, mode, acl, size, created, last-modified) into the response alongside the content, sparing a separate /api/db/properties call",
+            "description": "Set to 'full' to return the resource's metadata (owner, group, mode, acl, size, created, last-modified) as X-Resource-* response headers (X-Resource-Owner, X-Resource-Last-Modified, …; acl is JSON-encoded in X-Resource-Acl, omitted when empty), sparing a separate /api/db/properties call. The body stays the resource content — metadata is in the headers, not the JSON.",
             "schema": {
               "type": "string",
               "enum": ["full"]
@@ -1558,7 +1558,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Resource content (always includes runPath). With meta=full, the resource's metadata fields are flattened in alongside the content. XML resources are serialized using any serialization parameters supplied (method/indent/omit-xml-declaration/encoding/media-type/item-separator); omitted parameters fall through to the conf.xml serializer defaults, so a request with no serialization parameters is byte-for-byte identical to before. NOTE: eXist's `expand-xincludes` is not yet supported here — as of eXist 7.0.0-beta3 it cannot be honored for node-to-string serialization, so it is intentionally omitted rather than silently expanding.",
+            "description": "Resource content (always includes runPath). With meta=full, the resource's metadata is returned in X-Resource-* response headers (not the JSON body), keeping the body the resource content. XML resources are serialized using any serialization parameters supplied (method/indent/omit-xml-declaration/encoding/media-type/item-separator); omitted parameters fall through to the conf.xml serializer defaults, so a request with no serialization parameters is byte-for-byte identical to before. NOTE: eXist's `expand-xincludes` is not yet supported here — as of eXist 7.0.0-beta3 it cannot be honored for node-to-string serialization, so it is intentionally omitted rather than silently expanding.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1589,6 +1589,15 @@
                   }
                 }
               }
+            },
+            "headers": {
+              "X-Resource-Owner": { "description": "Resource owner (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Group": { "description": "Resource group (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Mode": { "description": "Permission mode string, e.g. rwxr-xr-x (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Size": { "description": "Size in bytes (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Created": { "description": "Creation dateTime (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Last-Modified": { "description": "Last-modified dateTime (present with meta=full)", "schema": { "type": "string" } },
+              "X-Resource-Acl": { "description": "JSON-encoded ACL array (present with meta=full; omitted when there are no ACEs)", "schema": { "type": "string" } }
             }
           },
           "404": {
@@ -1768,10 +1777,10 @@
         }
       }
     },
-    "/api/db/resource/{path}": {
+    "/api/resource/{path}": {
       "get": {
         "summary": "Get a resource's raw bytes (binary-safe, path in URL)",
-        "description": "Returns the resource's raw content with its stored MIME type. Binary resources are streamed as raw bytes (not base64); XML/text resources are serialized. The path is given in the URL, so this endpoint is binary-safe, unlike the JSON-envelope GET /api/db/resource.",
+        "description": "Returns the resource's raw content with its stored MIME type. Binary resources are streamed as raw bytes (not base64); XML/text resources are serialized. The path is given in the URL, so this endpoint is binary-safe, unlike the JSON-envelope GET /api/db/resource. Lives at /api/resource (not /api/db/resource) because the {path} already begins with /db — e.g. GET /api/resource/db/apps/my-app/data/test.xml.",
         "operationId": "db:get-resource-raw",
         "parameters": [
           {

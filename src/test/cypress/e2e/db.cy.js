@@ -1026,7 +1026,7 @@ describe('/api/db', () => {
   // Serialization parameters on GET /api/db/resource (existdb-openapi#48,
   // folded into db-core's get-resource). XML resources honor the W3C
   // serialization params; omitted params defer to conf.xml defaults.
-  describe('GET /api/db/resource — serialization parameters (oxex / #48)', () => {
+  describe('GET /api/db/resource — serialization parameters (existdb-oxygen-plugin / #48)', () => {
     const serDoc = `${testCollection}/ser.xml`;
 
     before(() => {
@@ -1042,29 +1042,38 @@ describe('/api/db', () => {
       });
     });
 
-    it('indent=yes pretty-prints; indent=no does not', () => {
+    it('indent=yes pretty-prints', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=yes`, auth }).then(response => {
         expect(response.body.content).to.match(/<root>\s*\n\s+<a>1<\/a>/);
       });
+    });
+
+    it('indent=no does not pretty-print', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=no`, auth }).then(response => {
         expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
       });
     });
 
-    it('indent tolerates true/false as well as yes/no', () => {
+    it('indent=true is treated as yes', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=true`, auth }).then(response => {
         expect(response.body.content).to.match(/<a>1<\/a>/);
         expect(response.body.content).to.include('\n');
       });
+    });
+
+    it('indent=false is treated as no', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=false`, auth }).then(response => {
         expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
       });
     });
 
-    it('omit-xml-declaration=no includes the XML declaration; =yes omits it', () => {
+    it('omit-xml-declaration=no includes the XML declaration', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=no`, auth }).then(response => {
         expect(response.body.content).to.match(/^<\?xml /);
       });
+    });
+
+    it('omit-xml-declaration=yes omits the XML declaration', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=yes`, auth }).then(response => {
         expect(response.body.content).to.not.match(/^<\?xml /);
       });
@@ -1136,15 +1145,19 @@ describe('/api/db', () => {
       });
     });
 
-    it('item 2 — meta=full flattens metadata alongside the content', () => {
+    it('item 2 — meta=full returns metadata in X-Resource-* headers, not the body', () => {
       cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}&meta=full`, auth }).then(r => {
-        // content fields still present
+        // content fields stay in the body
         expect(r.body).to.have.property('content');
         expect(r.body).to.have.property('runPath');
-        // metadata flattened in (same keys /properties returns for a resource)
-        ['owner', 'group', 'mode', 'acl', 'size', 'created', 'last-modified'].forEach(k =>
-          expect(r.body, `meta key ${k}`).to.have.property(k)
+        // metadata is in the headers (review feedback on #56); acl is conditional
+        // (omitted when there are no ACEs), so it is not asserted here
+        ['owner', 'group', 'mode', 'size', 'created', 'last-modified'].forEach(k =>
+          expect(r.headers, `header X-Resource-${k}`).to.have.property(`x-resource-${k}`)
         );
+        // and is NOT flattened into the body
+        expect(r.body).to.not.have.property('owner');
+        expect(r.body).to.not.have.property('last-modified');
       });
     });
 

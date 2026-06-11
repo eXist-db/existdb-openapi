@@ -79,10 +79,48 @@ declare function db:get-resource($request as map(*)) {
         (: pass the request parameters straight through as options — db-core reads
          : meta plus the W3C serialization keys (method/indent/omit-xml-declaration/
          : encoding/media-type/item-separator) and ignores the rest. :)
-        dbc:get-resource($request?parameters?path, $request?parameters)
+        let $result := dbc:get-resource($request?parameters?path, $request?parameters)
+        return
+            (: meta=full over HTTP: emit the metadata as response headers rather than
+             : in the JSON body (review feedback on #56 — metadata belongs in the
+             : header). db-core still returns it in the map for in-process callers. :)
+            if ($request?parameters?meta = "full")
+            then db:resource-meta-to-headers($result)
+            else $result
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
+};
+
+(:~
+ : Lift a meta=full resource result's metadata into X-Resource-* response headers
+ : and strip it from the body. Scalar fields map straight to a Header-Cased name
+ : (owner -> X-Resource-Owner, last-modified -> X-Resource-Last-Modified); the
+ : structured `acl` (always an array) is JSON-serialized, and its header is omitted
+ : when there are no ACEs. The content/path/mime-type/runPath stay in the body.
+ :)
+declare %private function db:resource-meta-to-headers($result as map(*)) as map(*) {
+    (: set-header is side-effecting; bind+ignore can be optimized away, so thread
+       it through (effects, result)[last()] to force evaluation. :)
+    let $set := (
+        for $k in ("owner", "group", "mode", "size", "created", "last-modified")
+        let $v := $result($k)
+        where exists($v) and string($v) ne ""
+        return response:set-header("X-Resource-" || db:header-case($k), string($v)),
+        if (exists($result?acl) and array:size($result?acl) gt 0)
+        then response:set-header("X-Resource-Acl", serialize($result?acl, map { "method": "json" }))
+        else ()
+    )
+    return ($set, map:remove($result, ("owner", "group", "mode", "acl", "size", "created", "last-modified")))[last()]
+};
+
+(:~ Header-Case a hyphenated metadata key for its X-Resource-* header name
+ : (owner -> Owner, last-modified -> Last-Modified). :)
+declare %private function db:header-case($key as xs:string) as xs:string {
+    string-join(
+        for $part in tokenize($key, "-")
+        return upper-case(substring($part, 1, 1)) || substring($part, 2),
+        "-")
 };
 
 (:~
