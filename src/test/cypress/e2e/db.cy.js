@@ -1146,4 +1146,38 @@ describe('/api/db', () => {
       });
     });
   });
+
+  // Read-compatibility: a resource an older client stored full-encoded (sub-delim
+  // names like it's.xml -> it%27s.xml) stays reachable by its decoded name, because
+  // db-core falls back to the legacy stored form when the canonical iri-to-uri form
+  // doesn't exist. (New writes still use the canonical form.)
+  describe('read-compat for legacy full-encoded names', () => {
+    const rc = `${testCollection}/rc`;
+    function runAdmin(query) {
+      return cy.request({ url: '/api/query', method: 'POST', auth, body: { query } }).then(r => {
+        if (r.body && r.body.cursor) cy.request({ url: `/api/query/${r.body.cursor}`, method: 'DELETE', auth, failOnStatusCode: false });
+      });
+    }
+    before(() => {
+      // store "it's.xml" the OLD way (full-encoded -> it%27s.xml), bypassing the API
+      runAdmin(`(if (xmldb:collection-available("${testCollection}")) then () else xmldb:create-collection("/db", "${testCollection.replace('/db/', '')}"), xmldb:create-collection("${testCollection}", "rc"), xmldb:store("${rc}", xmldb:encode("it's.xml"), <doc>legacy</doc>), "ok")[last()]`);
+    });
+    after(() => {
+      cy.request({ url: `/api/db/collection?path=${encodeURIComponent(rc)}&force=true`, method: 'DELETE', auth, failOnStatusCode: false });
+    });
+
+    it('GET resolves a legacy full-encoded name by its decoded name', () => {
+      cy.request({ url: `/api/db/resource?path=${encodeURIComponent(`${rc}/it's.xml`)}`, auth }).then(r => {
+        expect(r.status).to.eq(200);
+        expect(r.body.content).to.contain('legacy');
+      });
+    });
+
+    it('properties resolves the legacy name too', () => {
+      cy.request({ url: `/api/db/properties?path=${encodeURIComponent(`${rc}/it's.xml`)}`, auth }).then(r => {
+        expect(r.status).to.eq(200);
+        expect(r.body.type).to.eq('resource');
+      });
+    });
+  });
 });

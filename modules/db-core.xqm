@@ -98,6 +98,44 @@ declare function dbc:to-display($path as xs:string?) as xs:string? {
 };
 
 (:~
+ : Legacy full RFC-3986 per-segment encoding (xmldb:encode) — the form OLDER
+ : clients (e.g. pre-adapter eXide) used, which also percent-encodes sub-delims
+ : (so "it's.xml" was stored as "it%27s.xml"). Used only by db-core:resolve-stored
+ : as a read-compat fallback; never for new writes.
+ :)
+declare %private function dbc:full-encode($path as xs:string?) as xs:string? {
+    if (empty($path)) then $path
+    else string-join(
+        for $segment in tokenize($path, "/")
+        return if ($segment eq "") then "" else xmldb:encode($segment),
+        "/"
+    )
+};
+
+(:~
+ : Resolve a wire path to a STORED path, with read-compatibility for resources an
+ : older client stored full-encoded. Returns:
+ :   - the canonical iri-to-uri form when the path does NOT exist (so new writes
+ :     adopt the convention — the flip), or there are no sub-delims to diverge on
+ :     (the fast path: no existence checks, zero overhead for the common case);
+ :   - otherwise whichever of the canonical or legacy full-encoded forms actually
+ :     exists, so e.g. opening "it's.xml" still finds an old "it%27s.xml".
+ : This is the single place legacy-name read-compat lives; callers pass a wire path
+ : exactly as they would to db-core:to-stored.
+ :)
+declare %private function dbc:resolve-stored($wire as xs:string?) as xs:string? {
+    if (empty($wire)) then $wire
+    else
+        let $canonical := dbc:to-stored($wire)
+        let $legacy := dbc:full-encode($wire)
+        return
+            if ($canonical eq $legacy) then $canonical
+            else if (dbc:exists-at($canonical)) then $canonical
+            else if (dbc:exists-at($legacy)) then $legacy
+            else $canonical
+};
+
+(:~
  : Convert a glob pattern to a regex.
  : Supports *, ?, and character classes [...].
  :)
@@ -233,7 +271,7 @@ declare %private function dbc:list-recursive(
  : @error not-found if the collection does not exist
  :)
 declare function dbc:list($wire-path as xs:string, $opts as map(*)) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     let $recursive := $opts?recursive
     let $depth := $opts?depth
     let $glob := $opts?glob
@@ -311,7 +349,7 @@ declare %private function dbc:resource-metadata($path as xs:string) as map(*) {
  : @error not-found if the resource does not exist
  :)
 declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required parameter: path", map {})
@@ -418,7 +456,7 @@ declare %private function dbc:get-run-path($path as xs:string) as xs:string {
  : @error bad-request on missing fields, a path outside /db, or a store failure
  :)
 declare function dbc:store($wire-path as xs:string?, $content as item()?, $mime as xs:string?) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     (: Explicit mime from the client wins. When omitted we pass through to
      : the 3-arg xmldb:store, which calls MimeTable.getContentTypeFor() on
      : the resource name internally (see XMLDBStore.java lines 152-154 in
@@ -490,7 +528,7 @@ declare function dbc:under-db($path as xs:string?) as xs:boolean {
  : @error bad-request outside /db, forbidden on a protected path, not-found if absent
  :)
 declare function dbc:remove-resource($wire-path as xs:string?) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required parameter: path", map {})
@@ -513,7 +551,7 @@ declare function dbc:remove-resource($wire-path as xs:string?) as map(*) {
  : @error bad-request on a missing path or a path outside /db
  :)
 declare function dbc:create-collection($wire-path as xs:string?) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required field: path", map {})
@@ -534,7 +572,7 @@ declare function dbc:create-collection($wire-path as xs:string?) as map(*) {
  :        absent, conflict if non-empty and not forced
  :)
 declare function dbc:remove-collection($wire-path as xs:string?, $force as xs:boolean) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required parameter: path", map {})
@@ -584,8 +622,8 @@ declare %private function dbc:exists-at($path as xs:string?) as xs:boolean {
  :        conflict if the destination already exists, server-error mid-operation
  :)
 declare function dbc:move($args as map(*)) as map(*) {
-    let $source := dbc:to-stored($args?source)
-    let $parent := dbc:to-stored($args?parent)
+    let $source := dbc:resolve-stored($args?source)
+    let $parent := dbc:resolve-stored($args?parent)
     let $name := dbc:to-stored($args?name)
     let $newName := dbc:to-stored($args?newName)
     let $src-parent := if (exists($source)) then replace($source, "/[^/]+$", "") else ()
@@ -683,8 +721,8 @@ declare function dbc:move($args as map(*)) as map(*) {
  :        conflict if the destination already exists, server-error mid-operation
  :)
 declare function dbc:copy($args as map(*)) as map(*) {
-    let $source := dbc:to-stored($args?source)
-    let $parent := dbc:to-stored($args?parent)
+    let $source := dbc:resolve-stored($args?source)
+    let $parent := dbc:resolve-stored($args?parent)
     let $name := dbc:to-stored($args?name)
     let $newName := dbc:to-stored($args?newName)
     let $src-parent := replace($source, "/[^/]+$", "")
@@ -771,7 +809,7 @@ declare function dbc:copy($args as map(*)) as map(*) {
  : @error not-found if neither a collection nor a document exists at the path
  :)
 declare function dbc:properties($wire-path as xs:string?) as map(*) {
-    let $path := dbc:to-stored($wire-path)
+    let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required parameter: path", map {})
@@ -816,7 +854,7 @@ declare function dbc:properties($wire-path as xs:string?) as map(*) {
  :        to resources, not collections.
  :)
 declare function dbc:set-permissions($args as map(*)) as map(*) {
-    let $path := dbc:to-stored($args?path)
+    let $path := dbc:resolve-stored($args?path)
     return
         if (empty($path))
         then dbc:error("bad-request", "Missing required field: path", map {})
@@ -853,7 +891,7 @@ declare function dbc:set-permissions($args as map(*)) as map(*) {
  : @error not-found if the root collection does not exist
  :)
 declare function dbc:sync($wire-root as xs:string, $timestamp as xs:dateTime?) as map(*) {
-    let $root := dbc:to-stored($wire-root)
+    let $root := dbc:resolve-stored($wire-root)
     return
         if (not(xmldb:collection-available($root)))
         then dbc:error("not-found", "Collection not found: " || dbc:to-display($root), map {})
@@ -901,7 +939,7 @@ declare %private function dbc:sync-collection(
  :         registered built-in modules
  :)
 declare function dbc:modules($args as map(*)) as array(*) {
-    let $path := dbc:to-stored($args?path)
+    let $path := dbc:resolve-stored($args?path)
     let $prefix := $args?prefix
     let $imported-param := $args?uri
     let $imported :=
