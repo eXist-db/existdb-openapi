@@ -3517,11 +3517,10 @@
           {
             "name": "q",
             "in": "query",
-            "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "Search query string"
+            "description": "Search query string. Required for the keyword/field search; omit it when using the vector-similarity search (the `vector` + `similar` parameters)."
           },
           {
             "name": "app",
@@ -3582,6 +3581,31 @@
               "items": { "type": "string" }
             },
             "description": "Facet drill-down filter, '<dimension>:<value>' (e.g. site-app:docs). Repeatable: the same dimension repeated combines with OR, different dimensions with AND. ES post_filter semantics — selecting a value narrows the returned results but the facet bucket counts stay stable (they reflect the base query). The app/section parameters are shortcuts for facet=site-app:… / facet=site-section:…"
+          },
+          {
+            "name": "vector",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Switch to vector-similarity (kNN) search over this named vector field (a `field` value from GET /api/search/fields whose `kind` is `vector`). Requires `similar`; `q` is ignored. The field's embedding model is resolved server-side from its ft:fields record, so the client sends only the field and the text. Subject to the same field-level security as `field`."
+          },
+          {
+            "name": "similar",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "The query text for vector search: it is embedded with the vector field's configured model and matched by similarity. Used only with `vector`."
+          },
+          {
+            "name": "k",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Number of nearest-neighbor results to return for vector search (default 10). Used only with `vector`."
           }
         ],
         "responses": {

@@ -27,6 +27,9 @@ import module namespace roaster="http://e-editiones.org/roaster";
 import module namespace kwic="http://exist-db.org/xquery/kwic";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
+(: Vector module (the embedding/kNN extension). Static dependency: this build
+ : targets the vector-capable integration instance, not a stock eXist. :)
+declare namespace vector="http://exist-db.org/xquery/vector";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
@@ -98,6 +101,82 @@ declare %private function search:facet-counts($hits as node()*, $dimension as xs
 };
 
 (:~
+ : Vector-similarity branch of /api/search.
+ : GET /api/search?vector=<field>&similar=<text>&k=<n>[&scope=<path>]
+ :
+ : Discovery-driven: the field's embedding model is read from its ft:fields record
+ : (the `model` property, present on text-embedding vector fields, per
+ : eXist-db/exist#6459), so the client sends only {field, text}. The text is
+ : embedded with that model and run as a kNN over the field; hits come back in the
+ : same ES-shaped envelope as the keyword search, plus `field`/`model`/`max-score`.
+ :
+ : Notes:
+ : - ft:query-field-vector is context-scoped (it resolves against the documents in
+ :   the focus), so it is called as collection($scope)/ft:query-field-vector(...).
+ : - the engine's k is a candidate-pool hint, not a hard limit, so k is enforced
+ :   here via ft:score ordering + subsequence (same as keyword pagination).
+ :)
+declare %private function search:vector-query(
+    $field as xs:string, $similar as xs:string?, $scope as xs:string+,
+    $k as xs:integer, $groups as xs:string*, $is-dba as xs:boolean
+) {
+    if (empty($similar) or $similar = "")
+    then roaster:response(400, "application/json",
+        map { "error": "Missing required parameter for vector search: similar" })
+    (: Field-level security: the same policy /api/search/fields applies. :)
+    else if (not(fpol:visible($field, $groups, $is-dba)))
+    then roaster:response(403, "application/json",
+        map { "error": "Field not available: " || $field })
+    else
+        (: Resolve the field's embedding model from its ft:fields record. Bind $r
+           explicitly (avoid ?key in a predicate — eXist mis-handles the cardinality
+           for >1 item, XPTY0004). :)
+        let $vrec := (for $r in ft:fields($scope) where $r?kind = "vector" and $r?field = $field return $r)[1]
+        let $model := $vrec?model
+        return
+            if (empty($vrec))
+            then roaster:response(404, "application/json",
+                map { "error": "Vector field not found in scope: " || $field })
+            else if (empty($model) or $model = "")
+            then roaster:response(400, "application/json",
+                map { "error": "Field '" || $field || "' has no embedding model; it cannot embed query text (index it with a model, or query with a precomputed vector)" })
+            else
+                let $vec := vector:embed($similar, $model)
+                let $hits := collection($scope)/ft:query-field-vector($field, $vec, $k)
+                let $ranked :=
+                    for $h in $hits
+                    let $score := ft:score($h)
+                    order by $score descending
+                    return map { "hit": $h, "score": $score, "uri": document-uri(root($h)) }
+                let $top := subsequence($ranked, 1, $k)
+                return map {
+                    "query": $similar,
+                    "field": $field,
+                    "model": $model,
+                    "total": count($ranked),
+                    "k": $k,
+                    "max-score": ($top[1]?score, 0)[1],
+                    "results": array {
+                        for $m in $top
+                        let $hit := $m?hit
+                        let $doc-uri := $m?uri
+                        let $app := replace($doc-uri, "^/db/apps/([^/]+)/.*$", "$1")
+                        return map {
+                            "uri": $doc-uri,
+                            "path": $doc-uri,
+                            "title": (string($hit/ancestor-or-self::*[title][1]/title)[. ne ""], "(untitled)")[1],
+                            "app": $app,
+                            "url": site:resolve-link($app, replace($doc-uri, "^/db/apps/[^/]+", "")),
+                            "score": $m?score,
+                            "snippet": serialize(
+                                <span>{ substring(string-join($hit//text(), " "), 1, 200) }</span>,
+                                map { "method": "xml" })
+                        }
+                    }
+                }
+};
+
+(:~
  : Sitewide search over the shared `site-content` field.
  : GET /api/search?q=array:count&app=docs&section=functions&limit=20&offset=0
  :
@@ -132,8 +211,15 @@ declare function search:query($request as map(*)) {
     let $is-dba := ($user?dba, false())[1]
     let $limit := ($request?parameters?limit, 20)[1] cast as xs:integer
     let $offset := ($request?parameters?offset, 0)[1] cast as xs:integer
+    (: vector: switch to similarity search over a named vector field. similar: the
+       query text to embed (server resolves the field's model). Mutually exclusive
+       with the keyword path — when present, q is not required. :)
+    let $vector-field := $request?parameters?vector[. ne ""]
+    let $k := ($request?parameters?k, 10)[1] cast as xs:integer
     return
-        if (empty($q) or $q = "")
+        if (exists($vector-field))
+        then search:vector-query($vector-field, $request?parameters?similar, $scope, $k, $groups, $is-dba)
+        else if (empty($q) or $q = "")
         then map { "error": "Missing required parameter: q" }
         else if (exists($field) and not(fpol:visible($field, $groups, $is-dba)))
         (: Field-level security: the same policy /api/search/fields applies — a
