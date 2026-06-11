@@ -3556,9 +3556,28 @@
               "default": 0
             },
             "description": "Zero-based index of the first result to return (for paging)"
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Restrict the query to a single named field (a `field` value from GET /api/search/fields), instead of the default shared site-content/site-title query. Subject to the same field-level security: a field the caller may not see returns 403."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Collection path(s) to search under, recursive (defaults to the sitewide /db/apps). Same scope semantics as GET /api/search/fields; may be repeated to search several collections."
           }
         ],
         "responses": {
+          "403": {
+            "description": "The requested field is not available to the caller (field-level security)."
+          },
           "200": {
             "description": "Search results with total count, relevance scores, and KWIC-highlighted snippets",
             "content": {
