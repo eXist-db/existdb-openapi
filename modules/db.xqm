@@ -22,6 +22,7 @@ import module namespace roaster="http://e-editiones.org/roaster";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare namespace dberr="http://exist-db.org/api/db-core/error";
+declare namespace response="http://exist-db.org/xquery/response";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
@@ -215,6 +216,49 @@ declare function db:modules($request as map(*)) {
             "prefix": $request?parameters?prefix,
             "uri": $request?parameters?uri
         })
+    } catch * {
+        db:error-response($err:code, $err:description, $err:value)
+    }
+};
+
+(:~
+ : Raw binary-safe resource transport (path-in-URL), the clean roaster-native
+ : alternative to the JSON-envelope /api/db/resource (which is text/base64-only).
+ : Closes the binary side of #35/#38 without a controller workaround.
+ :
+ : GET /api/db/resource/{path} — return the resource's raw bytes. A binary
+ : resource is streamed with response:stream-binary (raw bytes — NOT run through
+ : the serializer, which would emit its base64 text); an XML/text resource is
+ : serialized and returned with its stored mime.
+ :)
+declare function db:get-resource-raw($request as map(*)) {
+    let $wire := "/" || $request?parameters?path
+    let $stored := dbc:to-stored($wire)
+    let $mime := xmldb:get-mime-type(xs:anyURI($stored))
+    return
+        if (util:binary-doc-available($stored))
+        then util:binary-doc($stored) => response:stream-binary($mime, ())
+        (: Return the document NODE (not a pre-serialized string): roaster's
+         : write-response serializes it once with the xml method. Passing a string
+         : would be serialized AGAIN and come back XML-escaped. :)
+        else if (doc-available($stored))
+        then roaster:response(200, $mime, doc($stored))
+        else roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
+};
+
+(:~
+ : PUT /api/db/resource/{path} — store the raw request body at {path}. Binary
+ : bodies arrive intact (roaster's body parser hands a non-json/xml body through
+ : as raw data); db-core stores them, inferring the mime from the name. Returns
+ : { stored, runPath } (201 when newly created, 200 on overwrite).
+ :)
+declare function db:put-resource-raw($request as map(*)) {
+    try {
+        let $result := dbc:store("/" || $request?parameters?path, $request?body, ())
+        return roaster:response(
+            if ($result?created) then 201 else 200,
+            map:remove($result, "created")
+        )
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }

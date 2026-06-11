@@ -1768,6 +1768,64 @@
         }
       }
     },
+    "/api/db/resource/{path}": {
+      "get": {
+        "summary": "Get a resource's raw bytes (binary-safe, path in URL)",
+        "description": "Returns the resource's raw content with its stored MIME type. Binary resources are streamed as raw bytes (not base64); XML/text resources are serialized. The path is given in the URL, so this endpoint is binary-safe, unlike the JSON-envelope GET /api/db/resource.",
+        "operationId": "db:get-resource-raw",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Full DB path of the resource (without the leading slash)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw resource content",
+            "content": { "*/*": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      },
+      "put": {
+        "summary": "Store a resource from a raw request body (binary-safe, path in URL)",
+        "description": "Stores the raw request body at {path}, inferring the MIME type from the name. Binary bodies are stored intact. Returns { stored, runPath }.",
+        "operationId": "db:put-resource-raw",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Full DB path of the resource (without the leading slash)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "*/*": { "schema": { "type": "string", "format": "binary" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Resource created",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "200": {
+            "description": "Resource updated",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    },
     "/api/db/collection": {
       "post": {
         "summary": "Create collection",
