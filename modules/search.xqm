@@ -191,10 +191,16 @@ declare function search:query($request as map(*)) {
                     "site-section": search:facet-counts($base-hits, "site-section")
                 }
             (: Post-filter: when a facet is selected, narrow the hits via Lucene
-               drill-down; otherwise the hits are the base set. :)
+               drill-down; otherwise the hits are the base set. The facets-option
+               query does NOT collect per-match offsets, so its nodes can't drive
+               ft:highlight-field-matches/KWIC — intersect the drill set with
+               $base-hits (which carry the match data) so the returned nodes are the
+               match-bearing ones, narrowed to the facet selection. (Identity
+               intersection; preserves the post_filter narrowing and the base-query
+               facet counts.) :)
             let $hits :=
                 if (map:size($facet-filter) gt 0)
-                then collection($scope)/*[ft:query(., $query-string, map:put($base-options, "facets", $facet-filter))]
+                then $base-hits intersect collection($scope)/*[ft:query(., $query-string, map:put($base-options, "facets", $facet-filter))]
                 else $base-hits
             (: Rank by score, dedup per document (highest-scoring hit wins). :)
             let $ranked :=
