@@ -71,70 +71,82 @@ declare function db:list($request as map(*)) {
 };
 
 (:~
- : Get resource content.
- : GET /api/db/resource?path=/db/apps/myapp/index.xq
+ : Get a resource's content.
+ : GET /api/db/resource?path=/db/apps/myapp/index.xq[&method&indent&…&download=true]
+ :
+ : Returns the raw content: a binary resource is streamed as-is; an XML/text
+ : resource has no stored byte form, so it is serialized from its node tree honoring
+ : the serialization parameters (db-core builds them). The body IS the content —
+ : metadata is a separate concern (GET /api/db/properties). download=true sets
+ : Content-Disposition: attachment so the browser saves rather than renders.
  :)
 declare function db:get-resource($request as map(*)) {
     try {
-        (: pass the request parameters straight through as options — db-core reads
-         : meta plus the W3C serialization keys (method/indent/omit-xml-declaration/
-         : encoding/media-type/item-separator) and ignores the rest. :)
-        let $result := dbc:get-resource($request?parameters?path, $request?parameters)
+        let $wire := $request?parameters?path
         return
-            (: meta=full over HTTP: emit the metadata as response headers rather than
-             : in the JSON body (review feedback on #56 — metadata belongs in the
-             : header). db-core still returns it in the map for in-process callers. :)
-            if ($request?parameters?meta = "full")
-            then db:resource-meta-to-headers($result)
-            else $result
+            if (empty($wire) or $wire = "")
+            then roaster:response(400, map { "error": "Missing required parameter: path" })
+            else
+                let $stored := dbc:to-stored($wire)
+                return
+                    if (not(doc-available($stored)) and not(util:binary-doc-available($stored)))
+                    then roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
+                    else
+                        let $mime := xmldb:get-mime-type(xs:anyURI($stored))
+                        (: download=true → Content-Disposition: attachment (a save, not the
+                           "inline" that stream-binary's filename arg would set). Bound and
+                           forced via [last()] so it is set before the body is streamed. :)
+                        let $disp :=
+                            if ($request?parameters?download = ("true", "yes", "1"))
+                            then response:set-header("Content-Disposition",
+                                'attachment; filename="' || replace(dbc:to-display($stored), "^.*/", "") || '"')
+                            else ()
+                        return
+                            if (util:binary-doc-available($stored))
+                            then ($disp, util:binary-doc($stored) => response:stream-binary($mime, ()))[last()]
+                            else
+                                (: XML/text: serialized from the node tree with the requested
+                                   params. An unsupported param (e.g. an eXist extension on a
+                                   pre-#6447 eXist) surfaces as a clean 400, not an opaque 500. :)
+                                let $content :=
+                                    try { dbc:get-resource($wire, $request?parameters)?content }
+                                    catch * { map { "ser-error": $err:description } }
+                                return
+                                    if ($content instance of map(*))
+                                    then roaster:response(400,
+                                        map { "error": "Serialization failed (an unsupported parameter for this eXist?): " || $content?("ser-error") })
+                                    else ($disp, util:string-to-binary($content) => response:stream-binary($mime, ()))[last()]
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
 };
 
 (:~
- : Lift a meta=full resource result's metadata into X-Resource-* response headers
- : and strip it from the body. Scalar fields map straight to a Header-Cased name
- : (owner -> X-Resource-Owner, last-modified -> X-Resource-Last-Modified); the
- : structured `acl` (always an array) is JSON-serialized, and its header is omitted
- : when there are no ACEs. The content/path/mime-type/runPath stay in the body.
- :)
-declare %private function db:resource-meta-to-headers($result as map(*)) as map(*) {
-    (: set-header is side-effecting; bind+ignore can be optimized away, so thread
-       it through (effects, result)[last()] to force evaluation. :)
-    let $set := (
-        for $k in ("owner", "group", "mode", "size", "created", "last-modified")
-        let $v := $result($k)
-        where exists($v) and string($v) ne ""
-        return response:set-header("X-Resource-" || db:header-case($k), string($v)),
-        if (exists($result?acl) and array:size($result?acl) gt 0)
-        then response:set-header("X-Resource-Acl", serialize($result?acl, map { "method": "json" }))
-        else ()
-    )
-    return ($set, map:remove($result, ("owner", "group", "mode", "acl", "size", "created", "last-modified")))[last()]
-};
-
-(:~ Header-Case a hyphenated metadata key for its X-Resource-* header name
- : (owner -> Owner, last-modified -> Last-Modified). :)
-declare %private function db:header-case($key as xs:string) as xs:string {
-    string-join(
-        for $part in tokenize($key, "-")
-        return upper-case(substring($part, 1, 1)) || substring($part, 2),
-        "-")
-};
-
-(:~
- : Store resource.
- : PUT /api/db/resource
+ : Store a resource from a raw request body (binary-safe).
+ : PUT /api/db/resource?path=/db/apps/myapp/data.bin[&mime=…]
+ :
+ : The path is a query param; the request body is the raw content (roaster hands a
+ : non-json/xml body through unparsed). The stored mime comes from the optional
+ : &mime query param when present, otherwise db-core infers it from the resource
+ : name. The request's own Content-Type is transport only and not used as the
+ : stored mime (HTTP clients send unpredictable defaults; an explicit &mime keeps
+ : it deterministic and still lets a caller force a type, e.g. application/octet-
+ : stream to store unparseable content as raw bytes). Returns { path } — 201
+ : created / 200 overwritten — so the caller can reconcile name normalization.
  :)
 declare function db:store-resource($request as map(*)) {
     try {
-        let $body := $request?body
-        let $result := dbc:store($body?path, $body?content, $body?mime-type)
-        return roaster:response(
-            if ($result?created) then 201 else 200,
-            map:remove($result, "created")
-        )
+        let $path := $request?parameters?path
+        return
+            if (empty($path) or $path = "")
+            then roaster:response(400, map { "error": "Missing required parameter: path" })
+            else
+                let $mime := $request?parameters?mime[. ne ""]
+                let $result := dbc:store($path, $request?body, $mime)
+                return roaster:response(
+                    if ($result?created) then 201 else 200,
+                    map { "path": $result?stored }
+                )
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
@@ -254,49 +266,6 @@ declare function db:modules($request as map(*)) {
             "prefix": $request?parameters?prefix,
             "uri": $request?parameters?uri
         })
-    } catch * {
-        db:error-response($err:code, $err:description, $err:value)
-    }
-};
-
-(:~
- : Raw binary-safe resource transport (path-in-URL), the clean roaster-native
- : alternative to the JSON-envelope /api/db/resource (which is text/base64-only).
- : Closes the binary side of #35/#38 without a controller workaround.
- :
- : GET /api/db/resource/{path} — return the resource's raw bytes. A binary
- : resource is streamed with response:stream-binary (raw bytes — NOT run through
- : the serializer, which would emit its base64 text); an XML/text resource is
- : serialized and returned with its stored mime.
- :)
-declare function db:get-resource-raw($request as map(*)) {
-    let $wire := "/" || $request?parameters?path
-    let $stored := dbc:to-stored($wire)
-    let $mime := xmldb:get-mime-type(xs:anyURI($stored))
-    return
-        if (util:binary-doc-available($stored))
-        then util:binary-doc($stored) => response:stream-binary($mime, ())
-        (: Return the document NODE (not a pre-serialized string): roaster's
-         : write-response serializes it once with the xml method. Passing a string
-         : would be serialized AGAIN and come back XML-escaped. :)
-        else if (doc-available($stored))
-        then roaster:response(200, $mime, doc($stored))
-        else roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
-};
-
-(:~
- : PUT /api/db/resource/{path} — store the raw request body at {path}. Binary
- : bodies arrive intact (roaster's body parser hands a non-json/xml body through
- : as raw data); db-core stores them, inferring the mime from the name. Returns
- : { stored, runPath } (201 when newly created, 200 on overwrite).
- :)
-declare function db:put-resource-raw($request as map(*)) {
-    try {
-        let $result := dbc:store("/" || $request?parameters?path, $request?body, ())
-        return roaster:response(
-            if ($result?created) then 201 else 200,
-            map:remove($result, "created")
-        )
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }

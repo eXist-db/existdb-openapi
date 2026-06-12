@@ -393,11 +393,12 @@ declare %private function dbc:resource-metadata($path as xs:string) as map(*) {
 (:~
  : Get resource content.
  : @param $wire-path resource path (wire/decoded form)
- : @param $opts { meta: "full"? } — when meta = "full", the resource's metadata
- :        (owner, group, mode, acl, size, created, last-modified) is flattened
- :        into the result alongside the content, sparing a second /properties
- :        round trip. The result always carries `runPath` (the URL to execute a
- :        stored resource).
+ : @param $opts serialization params (method/indent/…) applied to XML/text resources
+ : @return { path, binary, content, mime-type }. Content is the serialized text for
+ :         XML/text (honoring $opts) or the raw value for binary. Metadata is NOT
+ :         bundled — callers that need owner/perms/timestamps use dbc:properties
+ :         (GET /api/db/properties). The executable URL is derivable client-side and
+ :         no longer returned.
  : @error not-found if the resource does not exist
  :)
 declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as map(*) {
@@ -407,63 +408,71 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
         then dbc:error("bad-request", "Missing required parameter: path", map {})
         else if (not(doc-available($path)) and not(util:binary-doc-available($path)))
         then dbc:error("not-found", "Resource not found: " || dbc:to-display($path), map {})
+        else if (util:binary-doc-available($path))
+        then map {
+            "path": dbc:to-display($path),
+            "binary": true(),
+            "content": util:binary-to-string(util:binary-doc($path)),
+            "mime-type": xmldb:get-mime-type(xs:anyURI($path))
+        }
         else
             let $ser := dbc:serialization-params($opts)
-            let $base :=
-                if (util:binary-doc-available($path))
-                then map {
-                    "path": dbc:to-display($path),
-                    "binary": true(),
-                    "content": util:binary-to-string(util:binary-doc($path)),
-                    "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
-                    "runPath": dbc:get-run-path($path)
-                }
-                else map {
-                    "path": dbc:to-display($path),
-                    "binary": false(),
-                    "content":
-                        if (exists($ser))
-                        then serialize(doc($path), $ser)
-                        else serialize(doc($path)),
-                    "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
-                    "runPath": dbc:get-run-path($path)
-                }
-            return
-                if ($opts?meta = "full")
-                then map:merge(($base, dbc:resource-metadata($path)))
-                else $base
+            return map {
+                "path": dbc:to-display($path),
+                "binary": false(),
+                "content":
+                    if (exists($ser))
+                    then serialize(doc($path), $ser)
+                    else serialize(doc($path)),
+                "mime-type": xmldb:get-mime-type(xs:anyURI($path))
+            }
 };
 
 (:~
- : Build an output:serialization-parameters element from the W3C serialization
- : parameters present in $opts, or the empty sequence when none are given (so the
- : caller falls back to a bare serialize() = the conf.xml serializer defaults;
- : today's behavior, unchanged). Only keys the caller explicitly supplied are
- : emitted, so omitted parameters keep deferring to conf.xml. Boolean params
- : accept yes/no (the cursor query-results vocabulary) and tolerate true/false.
- :
- : NOTE: eXist's `expand-xincludes` serializer extension is deliberately NOT
- : handled here. As of eXist 7.0.0-beta3 it cannot be honored for node->string
- : serialization in XQuery (fn:serialize always expands; util:serialize was
- : removed; the REST layer hard-codes expand-xincludes=yes). Advertising it while
- : silently expanding would give clients a false guarantee and risk destroying
- : <xi:include> on save. Tracked separately pending an eXist-core fix.
+ : The serialization parameters this API accepts, all emitted in the W3C
+ : output: namespace. Covers the standard vocabulary that maps cleanly to a scalar
+ : query value, PLUS the eXist extensions that eXist-db/exist#6447 exposes through
+ : output: (previously reachable only via the exist: namespace — which is what made
+ : expand-xincludes "unachievable" for node->string serialization before #6447).
+ : The eXist extensions require #6447 in the target eXist; the standard params work
+ : on any eXist. (use-character-maps / parameter-document are intentionally omitted
+ : — they need structured values, not a scalar query param.)
+ :)
+declare variable $dbc:serialization-params as xs:string+ := (
+    (: standard W3C :)
+    "method", "encoding", "media-type", "item-separator", "doctype-public", "doctype-system",
+    "cdata-section-elements", "normalization-form", "html-version", "json-node-output-method",
+    "standalone", "suppress-indentation", "indent", "omit-xml-declaration", "undeclare-prefixes",
+    "escape-uri-attributes", "byte-order-mark", "allow-duplicate-names",
+    (: eXist extensions via output: (eXist-db/exist#6447) :)
+    "expand-xincludes", "highlight-matches", "add-exist-id", "process-xsl-pi", "jsonp", "insert-final-newline"
+);
+
+(:~ Params whose value is a yes/no boolean (so true/false/1 are tolerated and
+ : normalized). Enumerated params like highlight-matches (all|elements|…) and
+ : standalone (yes|no|omit) are NOT here — their values pass through verbatim. :)
+declare variable $dbc:serialization-boolean-params as xs:string+ := (
+    "indent", "omit-xml-declaration", "undeclare-prefixes", "escape-uri-attributes",
+    "byte-order-mark", "allow-duplicate-names",
+    "expand-xincludes", "process-xsl-pi", "insert-final-newline"
+);
+
+(:~
+ : Build an output:serialization-parameters element from the serialization params
+ : present in $opts, or the empty sequence when none are given (so the caller falls
+ : back to a bare serialize() = the conf.xml defaults). Only keys the caller
+ : explicitly supplied are emitted, so omitted params keep deferring to conf.xml —
+ : defaults are a fallback, never a ceiling.
  :)
 declare %private function dbc:serialization-params($opts as map(*)) as element(output:serialization-parameters)? {
-    let $children := (
-        if (exists($opts?method))
-            then <output:method>{$opts?method}</output:method> else (),
-        if (exists($opts?indent))
-            then <output:indent>{dbc:yes-no($opts?indent)}</output:indent> else (),
-        if (exists($opts?("omit-xml-declaration")))
-            then <output:omit-xml-declaration>{dbc:yes-no($opts?("omit-xml-declaration"))}</output:omit-xml-declaration> else (),
-        if (exists($opts?encoding))
-            then <output:encoding>{$opts?encoding}</output:encoding> else (),
-        if (exists($opts?("media-type")))
-            then <output:media-type>{$opts?("media-type")}</output:media-type> else (),
-        if (exists($opts?("item-separator")))
-            then <output:item-separator>{$opts?("item-separator")}</output:item-separator> else ()
-    )
+    let $children :=
+        for $name in $dbc:serialization-params
+        where exists($opts($name)) and string($opts($name)) ne ""
+        let $value :=
+            if ($name = $dbc:serialization-boolean-params)
+            then dbc:yes-no($opts($name))
+            else string($opts($name))
+        return element { QName("http://www.w3.org/2010/xslt-xquery-serialization", $name) } { $value }
     return
         if (empty($children))
         then ()
@@ -488,23 +497,12 @@ declare %private function dbc:fix-permissions($path as xs:string) {
 };
 
 (:~
- : Get the run path (URL to execute a stored resource).
- :)
-declare %private function dbc:get-run-path($path as xs:string) as xs:string {
-    let $app-root := repo:get-root()
-    return
-        if (starts-with($path, $app-root))
-        then "/exist/apps/" || substring-after($path, $app-root)
-        else "/exist/rest" || $path
-};
-
-(:~
  : Store a resource.
  : @param $wire-path target path (wire/decoded form)
  : @param $content resource content
  : @param $mime explicit mime type, or empty to let eXist infer from the name
- : @return { stored, runPath, created } — `created` is true when the resource did
- :         not previously exist (the wrapper maps it to HTTP 201 vs 200)
+ : @return { stored, created } — `created` is true when the resource did not
+ :         previously exist (the wrapper maps it to HTTP 201 vs 200)
  : @error bad-request on missing fields, a path outside /db, or a store failure
  :)
 declare function dbc:store($wire-path as xs:string?, $content as item()?, $mime as xs:string?) as map(*) {
@@ -537,7 +535,6 @@ declare function dbc:store($wire-path as xs:string?, $content as item()?, $mime 
                     let $_ := if ($is-new) then dbc:fix-permissions($stored) else ()
                     return map {
                         "stored": dbc:to-display($stored),
-                        "runPath": dbc:get-run-path($stored),
                         "created": $is-new
                     }
                 } catch * {
