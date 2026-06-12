@@ -153,7 +153,12 @@ declare %private function search:vector-query(
                     "query": $similar,
                     "field": $field,
                     "model": $model,
-                    "total": count($ranked),
+                    (: total = results returned (= k, or fewer if the corpus is
+                       smaller). NB: the kNN's own k currently over-returns a
+                       candidate pool — tracked by the eXist-core fix to
+                       ft:query-field-vector — so count the post-rank/subsequence
+                       slice, not the raw pool. :)
+                    "total": count($top),
                     "k": $k,
                     "max-score": ($top[1]?score, 0)[1],
                     "results": array {
@@ -215,7 +220,8 @@ declare function search:query($request as map(*)) {
        query text to embed (server resolves the field's model). Mutually exclusive
        with the keyword path — when present, q is not required. :)
     let $vector-field := $request?parameters?vector[. ne ""]
-    let $k := ($request?parameters?k, 10)[1] cast as xs:integer
+    (: clamp k to [1, 100]: default 10, hard cap 100 (a kNN result count, not paging) :)
+    let $k := max((1, min((($request?parameters?k, 10)[1] cast as xs:integer, 100))))
     return
         if (exists($vector-field))
         then search:vector-query($vector-field, $request?parameters?similar, $scope, $k, $groups, $is-dba)

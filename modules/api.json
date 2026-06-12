@@ -3603,9 +3603,11 @@
             "in": "query",
             "schema": {
               "type": "integer",
-              "default": 10
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
             },
-            "description": "Number of nearest-neighbor results to return for vector search (default 10). Used only with `vector`."
+            "description": "Number of nearest-neighbor results to return for vector search (default 10, clamped to 1–100). The response's `total` equals the number of results returned. Used only with `vector`."
           }
         ],
         "responses": {
