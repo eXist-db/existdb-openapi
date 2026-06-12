@@ -84,9 +84,28 @@ non-exhaustive index of what's available, grouped by concern:
 | `POST` | `/api/db/move` | Move resource or collection (with optional rename) |
 | `POST` | `/api/db/permissions` | Set permissions |
 | `GET` | `/api/db/properties` | Resource / collection properties |
-| `GET` / `PUT` / `DELETE` | `/api/db/resource` | Get / store / remove a resource |
+| `GET` / `PUT` / `DELETE` | `/api/db/resource` | Get / store / remove a resource (raw, binary-safe) |
 | `GET` | `/api/db/sync` | Sync a tree with timestamps |
 | `GET` | `/api/modules` | Discover importable XQuery modules |
+
+`/api/db/resource` is the single, binary-safe content endpoint. `GET` returns the
+raw content (`Content-Type` = the stored mime; binary streamed as-is, XML/text
+serialized from the node tree honoring W3C + eXist `output:` serialization params;
+`download=true` → `Content-Disposition: attachment`). `PUT` stores the raw request
+body (mime from the optional `&mime`, else inferred from the name) and returns
+`{ path }`. Paths are **decoded UTF-8** on the wire (send/receive `café.xml`, not
+`caf%C3%A9.xml`). For *metadata* (owner/perms/timestamps) call `/api/db/properties`.
+
+To turn a DB path into its web-accessible (executable) URL, derive it client-side
+— there is no server-returned `runPath`:
+
+```js
+function runPath(dbPath) {
+  return dbPath.startsWith('/db/apps/')
+    ? '/exist/apps/' + dbPath.slice('/db/apps/'.length)  // an installed app's resource
+    : '/exist/rest' + dbPath;                            // anything else, via REST
+}
+```
 
 ### Query execution
 

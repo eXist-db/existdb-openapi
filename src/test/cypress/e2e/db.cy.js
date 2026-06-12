@@ -1,5 +1,21 @@
 const auth = { username: 'admin', password: '' };
 const testCollection = '/db/cypress-test-api';
+const enc = encodeURIComponent;
+
+// Store a resource via the consolidated raw endpoint: path (+ optional mime) in the
+// query string, raw content in the request body. Omit mime to let the server infer
+// it from the name; pass a mime (e.g. application/octet-stream) to override. The
+// request Content-Type is transport only (octet-stream keeps roaster from parsing
+// the body), so the stored mime is driven by &mime / name-inference, not transport.
+// `extra` merges into the cy.request options (e.g. { failOnStatusCode: false }).
+function store(path, content, mime, extra) {
+  return cy.request(Object.assign({
+    url: `/api/db/resource?path=${enc(path)}` + (mime ? `&mime=${enc(mime)}` : ''),
+    method: 'PUT', auth,
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: content
+  }, extra || {}));
+}
 
 describe('/api/db', () => {
   before(() => {
@@ -115,189 +131,99 @@ describe('/api/db', () => {
   });
 
   describe('PUT /api/db/resource — store', () => {
-    it('stores an XML resource with explicit mime-type', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/test.xml`,
-          content: '<root><msg>hello</msg></root>',
-          'mime-type': 'application/xml'
-        }
-      }).then(response => {
-        expect(response.body).to.have.property('stored');
+    it('stores an XML resource with explicit mime', () => {
+      store(`${testCollection}/test.xml`, '<root><msg>hello</msg></root>', 'application/xml').then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+        expect(response.body).to.have.property('path', `${testCollection}/test.xml`);
       });
     });
 
-    // Regression: prior to this fix the handler defaulted `mime-type` to
-    // "application/xml" when the client omitted it, so .xq / .xqm / .svg
-    // / .json content either failed the XML parse outright (XPST0003,
-    // "Content is not allowed in prolog") or stored with the wrong MIME.
-    // The fix drops the default and lets the 3-arg xmldb:store consult
-    // eXist's MimeTable to pick the right MIME from the extension.
-    it('auto-detects application/xquery from .xq extension when mime-type omitted', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/auto.xq`, content: 'xquery version "3.1"; 1+1' }
-      }).then(response => {
+    // Regression: prior to this fix the handler defaulted the mime to
+    // "application/xml" when the client omitted it, so .xq / .xqm / .svg / .json
+    // content either failed the XML parse outright (XPST0003, "Content is not
+    // allowed in prolog") or stored with the wrong MIME. The fix drops the default
+    // and lets the 3-arg xmldb:store consult eXist's MimeTable to pick the right
+    // MIME from the extension (mime omitted on the wire = the &mime param absent).
+    it('auto-detects application/xquery from .xq extension when mime omitted', () => {
+      store(`${testCollection}/auto.xq`, 'xquery version "3.1"; 1+1').then(response => {
         expect(response.status).to.be.oneOf([200, 201]);
-        expect(response.body).to.have.property('stored');
+        expect(response.body).to.have.property('path');
       });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/auto.xq`,
-        auth
-      }).then(response => {
+      cy.request({ url: `/api/db/properties?path=${testCollection}/auto.xq`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('application/xquery');
       });
     });
 
-    it('auto-detects application/xquery from .xqm extension when mime-type omitted', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/auto.xqm`,
-          content: 'xquery version "3.1"; module namespace t = "http://example.com/t";'
-        }
-      }).then(response => {
-        expect(response.status).to.be.oneOf([200, 201]);
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/auto.xqm`,
-        auth
-      }).then(response => {
+    it('auto-detects application/xquery from .xqm extension when mime omitted', () => {
+      store(`${testCollection}/auto.xqm`, 'xquery version "3.1"; module namespace t = "http://example.com/t";')
+        .then(response => expect(response.status).to.be.oneOf([200, 201]));
+      cy.request({ url: `/api/db/properties?path=${testCollection}/auto.xqm`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('application/xquery');
       });
     });
 
-    it('auto-detects image/svg+xml from .svg extension when mime-type omitted', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/auto.svg`,
-          content: '<svg xmlns="http://www.w3.org/2000/svg"/>'
-        }
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/auto.svg`,
-        auth
-      }).then(response => {
+    it('auto-detects image/svg+xml from .svg extension when mime omitted', () => {
+      store(`${testCollection}/auto.svg`, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+      cy.request({ url: `/api/db/properties?path=${testCollection}/auto.svg`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('image/svg+xml');
       });
     });
 
-    it('auto-detects application/json from .json extension when mime-type omitted', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/auto.json`, content: '{"hello":"world"}' }
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/auto.json`,
-        auth
-      }).then(response => {
+    it('auto-detects application/json from .json extension when mime omitted', () => {
+      store(`${testCollection}/auto.json`, '{"hello":"world"}');
+      cy.request({ url: `/api/db/properties?path=${testCollection}/auto.json`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('application/json');
       });
     });
 
     it('stores well-formed .html as text/html via auto-detection', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/wellformed.html`,
-          content: '<html><head><title>t</title></head><body><p>x</p></body></html>'
-        }
-      }).then(response => {
-        expect(response.status).to.be.oneOf([200, 201]);
-        expect(response.body).to.have.property('stored');
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/wellformed.html`,
-        auth
-      }).then(response => {
+      store(`${testCollection}/wellformed.html`, '<html><head><title>t</title></head><body><p>x</p></body></html>')
+        .then(response => expect(response.status).to.be.oneOf([200, 201]));
+      cy.request({ url: `/api/db/properties?path=${testCollection}/wellformed.html`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('text/html');
       });
     });
 
     it('returns 400 with a parse-error message for unparseable XML content', () => {
-      // Unclosed <img> — not well-formed XML. eXist's text/html is
-      // an XML-class mime, so the parser runs and rejects. Clients
-      // who need to preserve raw bytes should send
-      // mime-type=application/octet-stream explicitly.
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/bad.html`,
-          content: '<html><body><img src="x.png"></body></html>'
-        },
-        failOnStatusCode: false
-      }).then(response => {
-        expect(response.status).to.equal(400);
-        expect(response.body.error).to.match(/parser|XML|img/i);
-      });
+      // Unclosed <img> — not well-formed XML. eXist's text/html is an XML-class
+      // mime, so the parser runs and rejects. Clients who need to preserve raw bytes
+      // send mime=application/octet-stream explicitly (next test).
+      store(`${testCollection}/bad.html`, '<html><body><img src="x.png"></body></html>', null, { failOnStatusCode: false })
+        .then(response => {
+          expect(response.status).to.equal(400);
+          expect(response.body.error).to.match(/parser|XML|img/i);
+        });
     });
 
-    it('preserves raw bytes for unparseable content when mime-type=application/octet-stream', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/raw.html`,
-          content: '<html><body><img src="x.png"></body></html>',
-          'mime-type': 'application/octet-stream'
-        }
-      }).then(response => {
-        expect(response.status).to.be.oneOf([200, 201]);
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/raw.html`,
-        auth
-      }).then(response => {
+    it('preserves raw bytes for unparseable content when mime=application/octet-stream', () => {
+      store(`${testCollection}/raw.html`, '<html><body><img src="x.png"></body></html>', 'application/octet-stream')
+        .then(response => expect(response.status).to.be.oneOf([200, 201]));
+      cy.request({ url: `/api/db/properties?path=${testCollection}/raw.html`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('application/octet-stream');
       });
     });
 
-    it('still honors explicit mime-type override (e.g. xhtml+xml for an .html path)', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: {
-          path: `${testCollection}/explicit.html`,
-          content: '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body><p>x</p></body></html>',
-          'mime-type': 'application/xhtml+xml'
-        }
-      });
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/explicit.html`,
-        auth
-      }).then(response => {
+    it('still honors an explicit mime override (e.g. xhtml+xml for an .html path)', () => {
+      store(`${testCollection}/explicit.html`,
+        '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body><p>x</p></body></html>',
+        'application/xhtml+xml');
+      cy.request({ url: `/api/db/properties?path=${testCollection}/explicit.html`, auth }).then(response => {
         expect(response.body['mime-type']).to.equal('application/xhtml+xml');
       });
+    });
+
+    it('400 when path is missing', () => {
+      cy.request({ url: '/api/db/resource', method: 'PUT', auth, failOnStatusCode: false, body: 'x' })
+        .then(response => expect(response.status).to.eq(400));
     });
   });
 
   describe('GET /api/db/resource — read', () => {
-    it('reads back the stored resource', () => {
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/test.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.path).to.eq(`${testCollection}/test.xml`);
-        expect(response.body.binary).to.eq(false);
-        expect(response.body.content).to.include('<msg>hello</msg>');
+    it('reads back the stored resource as raw content', () => {
+      cy.request({ url: `/api/db/resource?path=${testCollection}/test.xml`, auth }).then(response => {
+        expect(response.status).to.eq(200);
+        expect(response.headers['content-type']).to.contain('application/xml');
+        expect(response.body).to.include('<msg>hello</msg>');
       });
     });
 
@@ -315,10 +241,7 @@ describe('/api/db', () => {
 
   describe('GET /api/db/properties', () => {
     it('returns resource properties', () => {
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}/test.xml`,
-        auth
-      }).then(response => {
+      cy.request({ url: `/api/db/properties?path=${testCollection}/test.xml`, auth }).then(response => {
         expect(response.body.type).to.eq('resource');
         expect(response.body).to.have.property('owner');
         expect(response.body).to.have.property('mode');
@@ -327,10 +250,7 @@ describe('/api/db', () => {
     });
 
     it('returns collection properties', () => {
-      cy.request({
-        url: `/api/db/properties?path=${testCollection}`,
-        auth
-      }).then(response => {
+      cy.request({ url: `/api/db/properties?path=${testCollection}`, auth }).then(response => {
         expect(response.body.type).to.eq('collection');
         expect(response.body).to.have.property('owner');
       });
@@ -490,12 +410,7 @@ describe('/api/db', () => {
 
   describe('POST /api/db/copy', () => {
     it('copies a resource into an existing collection (parent only, leaf preserved)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/sub` }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/sub` } });
 
       cy.request({
         url: '/api/db/copy',
@@ -507,21 +422,13 @@ describe('/api/db', () => {
         expect(response.body.to).to.equal(`${testCollection}/sub/test.xml`);
       });
 
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/sub/test.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>hello</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/sub/test.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>hello</msg>');
       });
     });
 
     it('copies a resource into an existing collection with a new name (parent + name)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/copy-rename` }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/copy-rename` } });
       cy.request({
         url: '/api/db/copy',
         method: 'POST',
@@ -535,11 +442,8 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('copied');
         expect(response.body.to).to.equal(`${testCollection}/copy-rename/test-renamed.xml`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/copy-rename/test-renamed.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>hello</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/copy-rename/test-renamed.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>hello</msg>');
       });
     });
 
@@ -553,27 +457,14 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('copied');
         expect(response.body.to).to.equal(`${testCollection}/test-dup.xml`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/test-dup.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>hello</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/test-dup.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>hello</msg>');
       });
     });
 
     it('duplicates a collection in place via newName (shortcut)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/coll-to-dup` }
-      });
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/coll-to-dup/child.xml`, content: '<child>hi</child>', 'mime-type': 'application/xml' }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/coll-to-dup` } });
+      store(`${testCollection}/coll-to-dup/child.xml`, '<child>hi</child>', 'application/xml');
       cy.request({
         url: '/api/db/copy',
         method: 'POST',
@@ -583,11 +474,8 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('copied');
         expect(response.body.to).to.equal(`${testCollection}/coll-duplicated`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/coll-duplicated/child.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<child>hi</child>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/coll-duplicated/child.xml`, auth }).then(response => {
+        expect(response.body).to.include('<child>hi</child>');
       });
     });
 
@@ -633,18 +521,8 @@ describe('/api/db', () => {
 
   describe('POST /api/db/move', () => {
     it('moves a resource into an existing collection (parent only, leaf preserved)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/dest-coll` }
-      });
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/in-dest.xml`, content: '<msg>moveme</msg>', 'mime-type': 'application/xml' }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/dest-coll` } });
+      store(`${testCollection}/in-dest.xml`, '<msg>moveme</msg>', 'application/xml');
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -654,21 +532,13 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('moved');
         expect(response.body.to).to.equal(`${testCollection}/dest-coll/in-dest.xml`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/dest-coll/in-dest.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>moveme</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/dest-coll/in-dest.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>moveme</msg>');
       });
     });
 
     it('moves a resource with rename (parent + name)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/moved` }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/moved` } });
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -682,21 +552,13 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('moved');
         expect(response.body.to).to.equal(`${testCollection}/moved/arrived.xml`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/moved/arrived.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>hello</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/moved/arrived.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>hello</msg>');
       });
     });
 
     it('renames a resource in place via newName (shortcut)', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/to-rename.xml`, content: '<msg>rename me</msg>', 'mime-type': 'application/xml' }
-      });
+      store(`${testCollection}/to-rename.xml`, '<msg>rename me</msg>', 'application/xml');
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -706,11 +568,8 @@ describe('/api/db', () => {
         expect(response.body).to.have.property('moved');
         expect(response.body.to).to.equal(`${testCollection}/renamed.xml`);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/renamed.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<msg>rename me</msg>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/renamed.xml`, auth }).then(response => {
+        expect(response.body).to.include('<msg>rename me</msg>');
       });
       cy.request({
         url: `/api/db/resource?path=${testCollection}/to-rename.xml`,
@@ -722,12 +581,7 @@ describe('/api/db', () => {
     });
 
     it('renames a collection in place via newName (shortcut)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/coll-old` }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/coll-old` } });
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -767,19 +621,8 @@ describe('/api/db', () => {
 
     // Closes #37 — was the original silent-data-loss case.
     it('refuses to overwrite an existing destination on move (409 Conflict, source preserved)', () => {
-      // Set up: a source resource and a different file at the proposed destination
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/src-overwrite.xml`, content: '<src/>', 'mime-type': 'application/xml' }
-      });
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/dest-blocking.xml`, content: '<dest>existing</dest>', 'mime-type': 'application/xml' }
-      });
+      store(`${testCollection}/src-overwrite.xml`, '<src/>', 'application/xml');
+      store(`${testCollection}/dest-blocking.xml`, '<dest>existing</dest>', 'application/xml');
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -790,35 +633,17 @@ describe('/api/db', () => {
         expect(response.status).to.equal(409);
         expect(response.body.error).to.match(/already exists/i);
       });
-      // Source must still be there.
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/src-overwrite.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<src/>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/src-overwrite.xml`, auth }).then(response => {
+        expect(response.body).to.include('<src/>');
       });
-      // Destination must be unchanged (NOT overwritten with source).
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/dest-blocking.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<dest>existing</dest>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/dest-blocking.xml`, auth }).then(response => {
+        expect(response.body).to.include('<dest>existing</dest>');
       });
     });
 
     it('refuses to overwrite an existing destination collection on move (409 Conflict)', () => {
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/coll-src-overwrite` }
-      });
-      cy.request({
-        url: '/api/db/collection',
-        method: 'POST',
-        auth,
-        body: { path: `${testCollection}/coll-dest-blocking` }
-      });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/coll-src-overwrite` } });
+      cy.request({ url: '/api/db/collection', method: 'POST', auth, body: { path: `${testCollection}/coll-dest-blocking` } });
       cy.request({
         url: '/api/db/move',
         method: 'POST',
@@ -829,17 +654,10 @@ describe('/api/db', () => {
         expect(response.status).to.equal(409);
         expect(response.body.error).to.match(/already exists/i);
       });
-      // Both collections still there.
-      cy.request({
-        url: `/api/db?path=${testCollection}/coll-src-overwrite`,
-        auth
-      }).then(response => {
+      cy.request({ url: `/api/db?path=${testCollection}/coll-src-overwrite`, auth }).then(response => {
         expect(response.body.type).to.equal('collection');
       });
-      cy.request({
-        url: `/api/db?path=${testCollection}/coll-dest-blocking`,
-        auth
-      }).then(response => {
+      cy.request({ url: `/api/db?path=${testCollection}/coll-dest-blocking`, auth }).then(response => {
         expect(response.body.type).to.equal('collection');
       });
     });
@@ -860,18 +678,8 @@ describe('/api/db', () => {
 
   describe('POST /api/db/copy — safety', () => {
     it('refuses to overwrite an existing destination on copy (409 Conflict, both preserved)', () => {
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/copy-src.xml`, content: '<src/>', 'mime-type': 'application/xml' }
-      });
-      cy.request({
-        url: '/api/db/resource',
-        method: 'PUT',
-        auth,
-        body: { path: `${testCollection}/copy-dest-blocking.xml`, content: '<dest/>', 'mime-type': 'application/xml' }
-      });
+      store(`${testCollection}/copy-src.xml`, '<src/>', 'application/xml');
+      store(`${testCollection}/copy-dest-blocking.xml`, '<dest/>', 'application/xml');
       cy.request({
         url: '/api/db/copy',
         method: 'POST',
@@ -882,17 +690,11 @@ describe('/api/db', () => {
         expect(response.status).to.equal(409);
         expect(response.body.error).to.match(/already exists/i);
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/copy-src.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<src/>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/copy-src.xml`, auth }).then(response => {
+        expect(response.body).to.include('<src/>');
       });
-      cy.request({
-        url: `/api/db/resource?path=${testCollection}/copy-dest-blocking.xml`,
-        auth
-      }).then(response => {
-        expect(response.body.content).to.include('<dest/>');
+      cy.request({ url: `/api/db/resource?path=${testCollection}/copy-dest-blocking.xml`, auth }).then(response => {
+        expect(response.body).to.include('<dest/>');
       });
     });
 
@@ -973,10 +775,42 @@ describe('/api/db', () => {
     });
   });
 
+  // Raw binary-safe transport on the consolidated endpoint: a binary body round-trips
+  // intact (no base64 mangling), an XML/text resource returns its serialized source
+  // (NOT execution output), and download=true sets Content-Disposition: attachment.
+  describe('GET/PUT /api/db/resource — raw transport', () => {
+    const coll = `${testCollection}/raw`;
+    before(() => cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: coll } }));
+
+    it('PUT then GET round-trips raw binary content (not base64-mangled)', () => {
+      const content = 'raw-bytes-not-b64-payload';
+      store(`${coll}/blob.bin`, content).then(r => expect(r.status).to.be.oneOf([200, 201]));
+      cy.request({ url: `/api/db/resource?path=${enc(`${coll}/blob.bin`)}`, auth }).then(r => {
+        expect(r.status).to.eq(200);
+        expect(r.body).to.eq(content);
+      });
+    });
+
+    it('returns an XQuery resource as source, not execution output', () => {
+      store(`${coll}/mod.xq`, 'xquery version "3.1"; 40 + 2', 'application/xquery');
+      cy.request({ url: `/api/db/resource?path=${enc(`${coll}/mod.xq`)}`, auth }).then(r => {
+        expect(r.body).to.contain('xquery version');
+        expect(String(r.body)).to.not.eq('42');
+      });
+    });
+
+    it('download=true sets Content-Disposition: attachment', () => {
+      store(`${coll}/dl.bin`, 'data');
+      cy.request({ url: `/api/db/resource?path=${enc(`${coll}/dl.bin`)}&download=true`, auth }).then(r => {
+        expect(r.headers['content-disposition']).to.match(/^attachment/);
+      });
+    });
+  });
+
   describe('awkward resource names (encode/decode boundary)', () => {
     // The API speaks DECODED UTF-8 on the wire both ways: a client sends/receives
     // "café déjà.xml", never "caf%C3%A9...". eXist stores names percent-encoded,
-    // so db.xqm encodes on input and decodes on output. The other db tests use
+    // so db-core encodes on input and decodes on output. The other db tests use
     // ASCII names and so don't exercise this boundary.
     // non-ASCII + space; sub-delim apostrophe (xmldb:store leaves it literal); literal "+"
     // (must survive: stored as a literal "+", decoded back to "+", NOT form-decoded to a space)
@@ -994,16 +828,12 @@ describe('/api/db', () => {
       const q = encodeURIComponent(path);
 
       it(`stores, reads, lists and removes a resource named "${name}" by its decoded name`, () => {
-        // store with the decoded name in the body
-        cy.request({
-          url: '/api/db/resource', method: 'PUT', auth,
-          body: { path, content: `<doc>${name}</doc>`, 'mime-type': 'application/xml' }
-        }).then(r => expect(r.status).to.be.oneOf([200, 201]));
+        // store with the decoded name
+        store(path, `<doc>${name}</doc>`, 'application/xml').then(r => expect(r.status).to.be.oneOf([200, 201]));
 
-        // read back BY the decoded name: path echoes decoded, content intact
+        // read back BY the decoded name: content intact
         cy.request({ url: `/api/db/resource?path=${q}`, auth }).then(r => {
-          expect(r.body.path).to.eq(path);
-          expect(r.body.content).to.include(name);
+          expect(r.body).to.include(name);
         });
 
         // listing shows the decoded name (not percent-encoded)
@@ -1023,87 +853,79 @@ describe('/api/db', () => {
     });
   });
 
-  // Serialization parameters on GET /api/db/resource (existdb-openapi#48,
-  // folded into db-core's get-resource). XML resources honor the W3C
-  // serialization params; omitted params defer to conf.xml defaults.
+  // Serialization parameters on GET /api/db/resource (existdb-openapi#48, extended
+  // here to the full W3C set + eXist extensions). XML/text resources honor the
+  // params; omitted params defer to conf.xml defaults. The GET body is the raw
+  // serialized content (Content-Type = the stored mime).
   describe('GET /api/db/resource — serialization parameters (existdb-oxygen-plugin / #48)', () => {
     const serDoc = `${testCollection}/ser.xml`;
 
-    before(() => {
-      cy.request({
-        url: '/api/db/resource', method: 'PUT', auth,
-        body: { path: serDoc, content: '<root><a>1</a><b>2</b></root>', 'mime-type': 'application/xml' }
-      });
-    });
+    before(() => store(serDoc, '<root><a>1</a><b>2</b></root>', 'application/xml'));
 
     it('no serialization params → the conf.xml default (backward compatible)', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}`, auth }).then(response => {
-        expect(response.body.content).to.contain('<a>1</a>');
+        expect(response.body).to.contain('<a>1</a>');
       });
     });
 
     it('indent=yes pretty-prints', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=yes`, auth }).then(response => {
-        expect(response.body.content).to.match(/<root>\s*\n\s+<a>1<\/a>/);
+        expect(response.body).to.match(/<root>\s*\n\s+<a>1<\/a>/);
       });
     });
 
     it('indent=no does not pretty-print', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=no`, auth }).then(response => {
-        expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
+        expect(response.body).to.eq('<root><a>1</a><b>2</b></root>');
       });
     });
 
     it('indent=true is treated as yes', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=true`, auth }).then(response => {
-        expect(response.body.content).to.match(/<a>1<\/a>/);
-        expect(response.body.content).to.include('\n');
+        expect(response.body).to.match(/<a>1<\/a>/);
+        expect(response.body).to.include('\n');
       });
     });
 
     it('indent=false is treated as no', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&indent=false`, auth }).then(response => {
-        expect(response.body.content).to.eq('<root><a>1</a><b>2</b></root>');
+        expect(response.body).to.eq('<root><a>1</a><b>2</b></root>');
       });
     });
 
     it('omit-xml-declaration=no includes the XML declaration', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=no`, auth }).then(response => {
-        expect(response.body.content).to.match(/^<\?xml /);
+        expect(response.body).to.match(/^<\?xml /);
       });
     });
 
     it('omit-xml-declaration=yes omits the XML declaration', () => {
       cy.request({ url: `/api/db/resource?path=${serDoc}&omit-xml-declaration=yes`, auth }).then(response => {
-        expect(response.body.content).to.not.match(/^<\?xml /);
+        expect(response.body).to.not.match(/^<\?xml /);
       });
     });
 
-    it('serialization params do not affect binary resources', () => {
-      cy.request({
-        url: '/api/db/resource', method: 'PUT', auth,
-        body: { path: `${testCollection}/plain.txt`, content: 'hello', 'mime-type': 'text/plain' }
-      });
-      cy.request({ url: `/api/db/resource?path=${testCollection}/plain.txt&indent=yes`, auth }).then(response => {
-        expect(response.body.binary).to.eq(true);
-        expect(response.body.content).to.eq('hello');
-      });
+    it('an eXist-extension param is honored (#6447) or cleanly rejected (400), never a 500', () => {
+      // expand-xincludes reaches fn:serialize via the output: namespace only with
+      // eXist-db/exist#6447. On a #6447 eXist it is honored (200); on an older one
+      // fn:serialize rejects it — which must surface as a clean 400, not an opaque 500.
+      cy.request({ url: `/api/db/resource?path=${serDoc}&expand-xincludes=no`, auth, failOnStatusCode: false })
+        .then(response => {
+          expect(response.status).to.be.oneOf([200, 400]);
+        });
     });
   });
 
-  // Gap features folded into db-core (audit §2 items 2–6): writable flag and
-  // start/count pagination on list (always-on), runPath always on get-resource,
-  // meta=full single-call content+metadata, and set-MIME via /permissions.
-  describe('db-core gap features (audit §2 items 2–6)', () => {
+  // Gap features folded into db-core (audit §2 items 3 & 5): a writable flag and
+  // mime-type on list items, and start/count pagination. (Item 4 set-MIME via
+  // /permissions is also covered.)
+  describe('db-core gap features (audit §2 items 3–5)', () => {
     const gaps = `${testCollection}/gaps`;
-    const enc = p => encodeURIComponent(p);
 
     before(() => {
       cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: testCollection } });
       cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: gaps } });
-      ['a.xml', 'b.xml', 'c.xml'].forEach(n =>
-        cy.request({ url: '/api/db/resource', method: 'PUT', auth, body: { path: `${gaps}/${n}`, content: '<doc/>', 'mime-type': 'application/xml' } })
-      );
+      ['a.xml', 'b.xml', 'c.xml'].forEach(n => store(`${gaps}/${n}`, '<doc/>', 'application/xml'));
     });
 
     after(() => {
@@ -1136,35 +958,6 @@ describe('/api/db', () => {
         expect(r.body.count).to.eq(1);
         expect(r.body.children).to.have.length(1);
         expect(r.body.children[0].name).to.eq('b.xml');
-      });
-    });
-
-    it('item 6 — get-resource always returns runPath', () => {
-      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}`, auth }).then(r => {
-        expect(r.body).to.have.property('runPath').that.is.a('string').and.match(/^\/exist\//);
-      });
-    });
-
-    it('item 2 — meta=full returns metadata in X-Resource-* headers, not the body', () => {
-      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}&meta=full`, auth }).then(r => {
-        // content fields stay in the body
-        expect(r.body).to.have.property('content');
-        expect(r.body).to.have.property('runPath');
-        // metadata is in the headers (review feedback on #56); acl is conditional
-        // (omitted when there are no ACEs), so it is not asserted here
-        ['owner', 'group', 'mode', 'size', 'created', 'last-modified'].forEach(k =>
-          expect(r.headers, `header X-Resource-${k}`).to.have.property(`x-resource-${k}`)
-        );
-        // and is NOT flattened into the body
-        expect(r.body).to.not.have.property('owner');
-        expect(r.body).to.not.have.property('last-modified');
-      });
-    });
-
-    it('item 2 — without meta=full the metadata keys are absent (default unchanged)', () => {
-      cy.request({ url: `/api/db/resource?path=${enc(`${gaps}/a.xml`)}`, auth }).then(r => {
-        expect(r.body).to.not.have.property('owner');
-        expect(r.body).to.not.have.property('last-modified');
       });
     });
 
