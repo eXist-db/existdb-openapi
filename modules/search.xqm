@@ -104,17 +104,19 @@ declare %private function search:facet-counts($hits as node()*, $dimension as xs
  : Vector-similarity branch of /api/search.
  : GET /api/search?vector=<field>&similar=<text>&k=<n>[&scope=<path>]
  :
- : Discovery-driven: the field's embedding model is read from its ft:fields record
- : (the `model` property, present on text-embedding vector fields, per
+ : Discovery-driven: the field's embedding model AND indexed element are read from
+ : its ft:fields record (the `model` and `element` properties, per
  : eXist-db/exist#6459), so the client sends only {field, text}. The text is
- : embedded with that model and run as a kNN over the field; hits come back in the
- : same ES-shaped envelope as the keyword search, plus `field`/`model`/`max-score`.
+ : embedded with that model and run as a kNN over the field's element; hits come
+ : back in the same ES-shaped envelope as keyword search, plus `field`/`model`/
+ : `max-score`.
  :
  : Notes:
- : - ft:query-field-vector is context-scoped (it resolves against the documents in
- :   the focus), so it is called as collection($scope)/ft:query-field-vector(...).
- : - the engine's k is a candidate-pool hint, not a hard limit, so k is enforced
- :   here via ft:score ordering + subsequence (same as keyword pagination).
+ : - Uses the node-arg form ft:query-vector(collection($scope)//<element>, vec, k),
+ :   which applies a true cross-document top-k with k authoritative server-side; the
+ :   field form ft:query-field-vector is evaluated per-document in a path step
+ :   (ignores k, scales poorly — eXist-core bug, fix tracked separately).
+ : - ft:score ordering + subsequence is kept for explicit, robust ranking.
  :)
 declare %private function search:vector-query(
     $field as xs:string, $similar as xs:string?, $scope as xs:string+,
@@ -133,6 +135,7 @@ declare %private function search:vector-query(
            for >1 item, XPTY0004). :)
         let $vrec := (for $r in ft:fields($scope) where $r?kind = "vector" and $r?field = $field return $r)[1]
         let $model := $vrec?model
+        let $element := $vrec?element
         return
             if (empty($vrec))
             then roaster:response(404, "application/json",
@@ -142,7 +145,18 @@ declare %private function search:vector-query(
                 map { "error": "Field '" || $field || "' has no embedding model; it cannot embed query text (index it with a model, or query with a precomputed vector)" })
             else
                 let $vec := vector:embed($similar, $model)
-                let $hits := collection($scope)/ft:query-field-vector($field, $vec, $k)
+                (: Use the node-arg form ft:query-vector(nodes, vec, k), which applies a
+                   true cross-document top-k with k authoritative server-side. The field
+                   form collection($scope)/ft:query-field-vector($field, ...) is evaluated
+                   per-document (a 1-doc kNN per node, unioned), so it both ignores k and
+                   scales poorly — a known eXist-core bug, fix tracked separately. We
+                   target the vector field's indexed element (from ft:fields discovery);
+                   ft:query-vector resolves the field from that element's index config.
+                   Caveat: if an element carries >1 vector field this targets the first,
+                   not necessarily $field — fine for one-field-per-element corpora; when
+                   the core ft:query-field-vector fix lands, switch back to the
+                   field-targeted form for precise multi-field selection. :)
+                let $hits := ft:query-vector(collection($scope)//*[local-name() = $element], $vec, $k)
                 let $ranked :=
                     for $h in $hits
                     let $score := ft:score($h)
