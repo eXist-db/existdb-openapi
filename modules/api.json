@@ -409,6 +409,15 @@
                   "context-path": {
                     "type": "string",
                     "description": "DB path (e.g. `/db/apps/foo/data.xml`) to a document to use as the context item. Convenience shortcut over `context-item` when the editor's current document is already in the database. Takes precedence over `context-item`."
+                  },
+                  "variables": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "External-variable bindings: each property name is a variable's local name (no namespace) and its value is bound to the matching `declare variable $name external;` in the expression. Each value maps to the XDM exactly as the request JSON does (the same mapping as eXist's `parse-json`): string → xs:string, number → xs:double, boolean → xs:boolean, array → array(*), object → map(*). A query handles a multi-valued (array) parameter explicitly — e.g. `$x?*` or `array:flatten($x)` for its members. An external variable's declared type is matched strictly, so a typed declaration such as `as xs:integer` must receive a matching value — cast in-query (e.g. `xs:integer($n)`) or leave the variable untyped. Names with no matching external declaration are ignored.",
+                    "example": {
+                      "project-id": "frus1981-88v36",
+                      "div-ids": ["d278", "d300"]
+                    }
                   }
                 }
               }
