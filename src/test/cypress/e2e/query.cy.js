@@ -496,4 +496,85 @@ describe('/api/query', () => {
       });
     });
   });
+
+  describe('external variable bindings (variables)', () => {
+    // POST a query with a `variables` map, fetch the first page, hand it to `then`, then close.
+    function runWithVars(query, variables, then) {
+      cy.request({
+        url: '/api/query', method: 'POST', auth, body: { query, variables }
+      }).then(postResponse => {
+        expect(postResponse.status).to.eq(200);
+        const cursor = postResponse.body.cursor;
+        cy.request({
+          url: `/api/query/${cursor}/results?start=1&count=10`, auth
+        }).then(fetchResponse => {
+          then(fetchResponse.body);
+          cy.request({ url: `/api/query/${cursor}`, method: 'DELETE', auth });
+        });
+      });
+    }
+
+    it('binds a scalar string to an external variable', () => {
+      runWithVars(
+        'declare variable $greeting external; <g>{$greeting}</g>',
+        { greeting: 'hello' },
+        items => {
+          expect(items).to.have.length(1);
+          expect(items[0].value).to.eq('<g>hello</g>');
+        });
+    });
+
+    it('binds a JSON number as xs:double', () => {
+      runWithVars(
+        'declare variable $n external; (xs:integer($n) * 2, $n instance of xs:double)',
+        { n: 21 },
+        items => {
+          expect(items[0].value).to.eq('42');
+          expect(items[1].value).to.eq('true()');
+        });
+    });
+
+    it('binds a JSON array as array(*); members are reached with ?*', () => {
+      runWithVars(
+        'declare variable $ids external; (array:size($ids), count($ids?*), string-join($ids?*, "|"))',
+        { ids: ['d278', 'd300', 'd12'] },
+        items => {
+          expect(items[0].value).to.eq('3');                 // array:size — bound as an array
+          expect(items[1].value).to.eq('3');                 // count($ids?*) — members as a sequence
+          expect(items[2].value).to.eq('"d278|d300|d12"');   // adaptive-quoted xs:string
+        });
+    });
+
+    it('binds a JSON object as map(*)', () => {
+      runWithVars(
+        'declare variable $opts external; $opts?indent',
+        { opts: { indent: 'yes', method: 'xml' } },
+        items => {
+          expect(items[0].value).to.eq('"yes"');
+        });
+    });
+
+    it('ignores a supplied name with no matching external declaration', () => {
+      runWithVars(
+        'declare variable $used external; <r>{$used}</r>',
+        { used: 'X', unused: 'Y' },
+        items => {
+          expect(items[0].value).to.eq('<r>X</r>');
+        });
+    });
+
+    it('a missing required external variable propagates as an XQuery error', () => {
+      // No default and no supplied value → XPDY0002 from cursor:eval, which
+      // propagates with a non-200 status and structured fields (not a 200 error map).
+      cy.request({
+        url: '/api/query', method: 'POST', auth,
+        body: { query: 'declare variable $required external; $required' },
+        failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.be.oneOf([400, 500]);
+        expect(response.body).to.have.property('code');
+        expect(response.body.code).to.match(/XPDY0002/);
+      });
+    });
+  });
 });
