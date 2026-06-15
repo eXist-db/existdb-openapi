@@ -428,15 +428,24 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
             }
 };
 
+(:~ eXist serializer extensions, emitted in the exist: namespace
+ : (http://exist.sourceforge.net/NS/exist) rather than the W3C output: namespace.
+ : eXist's serializer recognizes these natively as exist:-namespaced children of
+ : output:serialization-parameters via fn:serialize, so expand-xincludes et al.
+ : work on any eXist — no dependency on eXist-db/exist#6447. :)
+declare variable $dbc:serialization-exist-params as xs:string+ := (
+    "expand-xincludes", "highlight-matches", "add-exist-id", "process-xsl-pi", "jsonp", "insert-final-newline"
+);
+
 (:~
- : The serialization parameters this API accepts, all emitted in the W3C
- : output: namespace. Covers the standard vocabulary that maps cleanly to a scalar
- : query value, PLUS the eXist extensions that eXist-db/exist#6447 exposes through
- : output: (previously reachable only via the exist: namespace — which is what made
- : expand-xincludes "unachievable" for node->string serialization before #6447).
- : The eXist extensions require #6447 in the target eXist; the standard params work
- : on any eXist. (use-character-maps / parameter-document are intentionally omitted
- : — they need structured values, not a scalar query param.)
+ : The serialization parameters this API accepts. The standard W3C vocabulary
+ : (those that map cleanly to a scalar query value) is emitted in the output:
+ : namespace and works on any eXist; the eXist extensions
+ : ($dbc:serialization-exist-params) are emitted in the exist: namespace. (Together
+ : that makes expand-xincludes reachable conformantly — what was "unachievable" for
+ : node->string serialization while it was attempted through output:.)
+ : use-character-maps / parameter-document are intentionally omitted — they need
+ : structured values, not a scalar query param.
  :)
 declare variable $dbc:serialization-params as xs:string+ := (
     (: standard W3C :)
@@ -444,8 +453,8 @@ declare variable $dbc:serialization-params as xs:string+ := (
     "cdata-section-elements", "normalization-form", "html-version", "json-node-output-method",
     "standalone", "suppress-indentation", "indent", "omit-xml-declaration", "undeclare-prefixes",
     "escape-uri-attributes", "byte-order-mark", "allow-duplicate-names",
-    (: eXist extensions via output: (eXist-db/exist#6447) :)
-    "expand-xincludes", "highlight-matches", "add-exist-id", "process-xsl-pi", "jsonp", "insert-final-newline"
+    (: eXist extensions (emitted in the exist: namespace, see $dbc:serialization-exist-params) :)
+    $dbc:serialization-exist-params
 );
 
 (:~ Params whose value is a yes/no boolean (so true/false/1 are tolerated and
@@ -472,7 +481,11 @@ declare %private function dbc:serialization-params($opts as map(*)) as element(o
             if ($name = $dbc:serialization-boolean-params)
             then dbc:yes-no($opts($name))
             else string($opts($name))
-        return element { QName("http://www.w3.org/2010/xslt-xquery-serialization", $name) } { $value }
+        let $ns :=
+            if ($name = $dbc:serialization-exist-params)
+            then "http://exist.sourceforge.net/NS/exist"
+            else "http://www.w3.org/2010/xslt-xquery-serialization"
+        return element { QName($ns, $name) } { $value }
     return
         if (empty($children))
         then ()

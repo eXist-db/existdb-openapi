@@ -106,8 +106,8 @@ declare function db:get-resource($request as map(*)) {
                             then ($disp, util:binary-doc($stored) => response:stream-binary($mime, ()))[last()]
                             else
                                 (: XML/text: serialized from the node tree with the requested
-                                   params. An unsupported param (e.g. an eXist extension on a
-                                   pre-#6447 eXist) surfaces as a clean 400, not an opaque 500. :)
+                                   params. A serialization failure (e.g. an invalid param value)
+                                   surfaces as a clean 400, not an opaque 500. :)
                                 let $content :=
                                     try { dbc:get-resource($wire, $request?parameters)?content }
                                     catch * { map { "ser-error": $err:description } }
