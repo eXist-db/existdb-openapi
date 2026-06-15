@@ -57,6 +57,162 @@ describe('/api/langservice', () => {
         expect(response.body[0]).to.have.property('kind');
       });
     });
+
+    describe('namespace scoping (issue #31)', () => {
+      it('scopes to the trailing prefix when cursor is at "util:"', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          expect(response.body).to.be.an('array').and.have.length.greaterThan(0);
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^util:/);
+          });
+        });
+      });
+
+      it('prefix-matches the local-name part ("fn:cou" → "fn:count")', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fn:cou' }
+        }).then(response => {
+          expect(response.body).to.be.an('array').and.have.length.greaterThan(0);
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^fn:cou/i);
+          });
+        });
+      });
+
+      it('drops keywords from the response when cursor is prefixed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          const keywordKinds = response.body.filter(i => i.kind === 14);
+          expect(keywordKinds).to.have.length(0);
+        });
+      });
+
+      it('returns the full set (and keywords) for a bare partial token', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          // Includes more than a single namespace
+          const prefixes = new Set(
+            response.body.filter(i => i.label.includes(':'))
+                         .map(i => i.label.split(':')[0])
+          );
+          expect(prefixes.size).to.be.greaterThan(3);
+          // Keyword still in the set
+          const keywordKinds = response.body.filter(i => i.kind === 14);
+          expect(keywordKinds).to.have.length.greaterThan(0);
+        });
+      });
+
+      it('honors the trailing token in a multi-line expression', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'let $x := 1\nreturn util:' }
+        }).then(response => {
+          response.body.forEach(item => {
+            expect(item.label).to.match(/^util:/);
+          });
+        });
+      });
+    });
+
+    describe('filterText / sortText / insertText shaping (issue #31)', () => {
+      function findItem(items, label) {
+        return items.find(i => i.label === label);
+      }
+
+      it('every item carries filterText, sortText, and insertTextFormat', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'count' }
+        }).then(response => {
+          response.body.forEach(item => {
+            expect(item).to.have.property('filterText').that.is.a('string');
+            expect(item).to.have.property('sortText').that.is.a('string');
+            expect(item).to.have.property('insertTextFormat');
+          });
+        });
+      });
+
+      it('bare-mode fn:* drops the prefix from insertText', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.label).to.eq('fn:count#1');
+          expect(fnCount.insertText).to.eq('count()');
+          expect(fnCount.filterText).to.eq('count');
+        });
+      });
+
+      it('prefixed-mode fn:* keeps the prefix the user typed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fn:cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.insertText).to.eq('fn:count()');
+        });
+      });
+
+      it('non-fn namespaces always keep their prefix in insertText', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'log' }
+        }).then(response => {
+          const utilLog = findItem(response.body, 'util:log#2');
+          expect(utilLog).to.exist;
+          expect(utilLog.insertText).to.match(/^util:log/);
+        });
+      });
+
+      it('emits snippet items (FLWOR, try/catch, etc.) in bare mode', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'fo' }
+        }).then(response => {
+          const snippets = response.body.filter(i => i.kind === 15);
+          expect(snippets.length).to.be.greaterThan(0);
+          const forSnip = snippets.find(s => s.label === 'for');
+          expect(forSnip).to.exist;
+          expect(forSnip.insertTextFormat).to.eq(2);
+          expect(forSnip.insertText).to.contain('${1:x}');
+          expect(forSnip.insertText).to.contain('${2:expr}');
+        });
+      });
+
+      it('suppresses snippets when the cursor is prefixed', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'util:' }
+        }).then(response => {
+          const snippets = response.body.filter(i => i.kind === 15);
+          expect(snippets).to.have.length(0);
+        });
+      });
+
+      it('sortText biases fn:* / keywords / user fns into bucket 0', () => {
+        cy.request({
+          url: '/api/langservice/completions', method: 'POST', auth,
+          body: { expression: 'cou' }
+        }).then(response => {
+          const fnCount = findItem(response.body, 'fn:count#1');
+          expect(fnCount.sortText).to.match(/^0_/);
+          // other-namespace items bucket higher
+          const utilCount = response.body.find(i => i.label.startsWith('util:') && i.kind === 3);
+          if (utilCount) {
+            expect(utilCount.sortText.charAt(0)).to.not.eq('0');
+          }
+        });
+      });
+    });
   });
 
   describe('POST /api/langservice/hover', () => {

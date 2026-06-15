@@ -125,6 +125,29 @@ Response shapes are inspired by LSP types (`CompletionItemKind`, `SymbolKind`,
 HTTP/JSON. Isomorphic-to-LSP shape tightening is tracked in
 [#16](https://github.com/eXist-db/existdb-openapi/issues/16).
 
+#### Calling `POST /api/langservice/completions` efficiently
+
+Each item carries `label`, `kind`, `detail`, `documentation`, `insertText`, `filterText`, `sortText`, and `insertTextFormat` — modelled on LSP's [`CompletionItem`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#completionItem). What the server does, and what the client is expected to do on top of it:
+
+**Server-side**
+
+- **Trailing-token scoping.** When the cursor (i.e. the end of the submitted `expression`) is at `prefix:` or `prefix:partial`, the response contains only that namespace's functions, with the local-name prefix-matched case-insensitively when present. Keywords and snippets are dropped from prefixed responses. A bare or empty cursor gets the full set.
+- **sortText biasing.** `fn:*`, XQuery keywords, the snippet set, user-declared functions, and user-declared variables all bucket to `0_…`. `xs:*` → `1_…`, `math:*` → `2_…`, `util:*` / `map:*` / `array:*` → `3_…`, everything else → `9_…`. The default ranking puts the symbols a user is most likely to reach for at the top of an unprefixed dropdown.
+- **insertText shaping for the default function namespace.** When the cursor is bare (no prefix typed), `fn:*` items insert without their prefix — accepting a completion for `cou` yields `count(...)`, not `fn:count(...)`, preserving the user's unprefixed style. Prefixed mode (`fn:cou`) keeps the prefix the user already typed. Other namespaces always keep their prefix in `insertText` because the function literally can't be called without it.
+- **Snippets.** Seven snippet items (`for`, `let`, `if`, `try`, `typeswitch`, `function`, `import`) are emitted in bare mode with `kind: 15` (Snippet), `insertTextFormat: 2`, and tab-stop placeholders (`${1:name}`, with `\$` escaping literal dollars so XQuery `$x` survives unescaping).
+- **Completeness.** The response always represents the full set for the cursor position. There is no separate "isIncomplete" flag — the contract is "this is complete; cache and filter locally as the user keeps typing."
+
+**Client-side**
+
+- **Cache per trigger session.** As the user types more characters at the same cursor position, *filter the cached array in memory* against each item's `filterText`. Do not re-query on every keystroke. Re-query only when (a) the cursor moves, (b) text is edited before the cursor, or (c) a new `:` is typed — that last one matters because a fresh `:` switches the response from full-set to namespace-scoped and the cached payload is now wrong.
+- **Match against `filterText`, not `label`.** `label` for functions is `fn:count#1` (namespaced + arity, for display in the dropdown), but `filterText` is `count` (the local-name). If you match against `label` instead, typing `cou` won't find `fn:count` — the `fn:` prefix breaks the substring match. For variables, `filterText` drops the leading `$`, so typing `x` or `$x` both find `$x`.
+- **Trust `sortText`.** Render the dropdown in `sortText` order; don't substitute your own ranking. The bucketing is what makes unprefixed `cou` put `fn:count` above `util:count*` and `range:count*`.
+- **Honor `insertTextFormat: 2` for snippets.** If your client supports snippet expansion, parse `${N}` / `${N:default}` placeholders and `\$` escapes; tab cycles through them. If it doesn't, fall back to inserting `insertText` verbatim — the LSP-defined fallback. The snippet body for `for` is `for \$${1:x} in ${2:expr}\nreturn \$$1`, which expands to `for $x in expr\nreturn $x` with tab stops on `x` (occurs twice), `expr`, and the back-referenced `$x`.
+
+**Practical sequencing**
+
+A single completion session typically looks like: trigger (Ctrl-Space or a `:`), one POST to `/api/langservice/completions` with the buffer-up-to-cursor as `expression`, render the result, then narrow client-side as the user types. The server-side scoping means even bursty interactive use is one round-trip per *context change* (typing a `:`), not per keystroke. The unprefixed full-set response is ~930 items in a stock eXist 7 — at ~300 bytes per item that's ~280 KB, well within a single HTTP/2 frame on local-network deployments; for narrower bandwidth, the prefixed-scoped responses (typically 10–100 items) are what the user hits most often once they're past the first character.
+
 ### Users, groups, packages, search, system
 
 Standard admin surface — see the OpenAPI spec for full operation details.

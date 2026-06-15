@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +67,43 @@ public class Completions extends BasicFunction {
     private static final long COMPLETION_KIND_FUNCTION = 3;
     private static final long COMPLETION_KIND_VARIABLE = 6;
     private static final long COMPLETION_KIND_KEYWORD = 14;
+    private static final long COMPLETION_KIND_SNIPPET = 15;
+
+    /** LSP InsertTextFormat: 1 = PlainText, 2 = Snippet. */
+    private static final long INSERT_TEXT_FORMAT_PLAIN = 1;
+    private static final long INSERT_TEXT_FORMAT_SNIPPET = 2;
+
+    private static final Snippet[] SNIPPETS = {
+            new Snippet("for", "for … in … return …",
+                    "for \\$${1:x} in ${2:expr}\nreturn \\$$1"),
+            new Snippet("let", "let … := …",
+                    "let \\$${1:x} := ${2:expr}\nreturn \\$$1"),
+            new Snippet("if", "if (…) then … else …",
+                    "if (${1:condition}) then ${2:then} else ${3:else}"),
+            new Snippet("try", "try { … } catch * { … }",
+                    "try {\n    ${1}\n} catch * {\n    ${2:\\$err:description}\n}"),
+            new Snippet("typeswitch", "typeswitch (…) case … default return …",
+                    "typeswitch (${1:expr})\n    case ${2:xs:string} return ${3}\n    default return ${4}"),
+            new Snippet("function", "declare function …(…) { … }",
+                    "declare function ${1:local}:${2:name}(${3}) {\n    ${4}\n};"),
+            new Snippet("import", "import module namespace …",
+                    "import module namespace ${1:p} = \"${2:uri}\";")
+    };
+
+    /**
+     * sortText prefix bucket per namespace. Bias toward the XQuery defaults so
+     * unprefixed bare-mode input ranks {@code fn:*} above other namespaces.
+     * Items not listed bucket to "9".
+     */
+    private static final Map<String, String> NAMESPACE_BUCKET = Map.of(
+            "fn",    "0",
+            "local", "0",
+            "xs",    "1",
+            "math",  "2",
+            "map",   "3",
+            "array", "3",
+            "util",  "3"
+    );
 
     private static final String FS_COMPLETIONS_NAME = "completions";
     private static final String FS_COMPLETIONS_DESCRIPTION = """
@@ -117,9 +155,32 @@ public class Completions extends BasicFunction {
         super(context, signature);
     }
 
+    /**
+     * Classification of the identifier-like token at the cursor (i.e. at the
+     * end of the submitted expression). Drives server-side scoping: a {@code
+     * prefix:} cursor narrows the response to that namespace; a bare token
+     * gets the full set.
+     */
+    enum CursorMode { PREFIXED_PARTIAL, PREFIXED_EMPTY, BARE_PARTIAL, NONE }
+
+    record CursorToken(String prefix, String localPart, CursorMode mode) {
+        boolean isPrefixed() {
+            return mode == CursorMode.PREFIXED_PARTIAL || mode == CursorMode.PREFIXED_EMPTY;
+        }
+    }
+
+    /**
+     * Snippet templates expanded by clients that honor
+     * {@code insertTextFormat: 2}. Placeholders use {@code ${N:default}};
+     * {@code \$} escapes a literal dollar (so the XQuery variable {@code $x}
+     * is written {@code \$x} in the snippet body).
+     */
+    private record Snippet(String trigger, String label, String body) { }
+
     @Override
     public Sequence eval(final Sequence[] args, final Sequence contextSequence) throws XPathException {
         final String expr = args[0].getStringValue();
+        final CursorToken cursor = parseTrailingToken(expr);
         final List<Sequence> completions = new ArrayList<>();
 
         final XQueryContext pContext = new XQueryContext(context.getBroker().getBrokerPool());
@@ -129,16 +190,20 @@ public class Completions extends BasicFunction {
             }
 
             // Built-in module functions are always available
-            addBuiltinFunctions(pContext, completions);
+            addBuiltinFunctions(pContext, completions, cursor);
 
-            // Keywords
-            addKeywords(completions);
+            // Keywords and snippets — never offered when the cursor is scoped
+            // to a prefix, since `util:return`/`util:for` can't exist.
+            if (!cursor.isPrefixed()) {
+                addKeywords(completions);
+                addSnippets(completions);
+            }
 
             // Try to compile to discover user-declared symbols
             if (!expr.trim().isEmpty()) {
                 context.pushNamespaceContext();
                 try {
-                    addUserDeclaredSymbols(pContext, expr, completions);
+                    addUserDeclaredSymbols(pContext, expr, completions, cursor);
                 } finally {
                     context.popNamespaceContext();
                     pContext.reset(false);
@@ -152,10 +217,61 @@ public class Completions extends BasicFunction {
     }
 
     /**
-     * Adds completion items for all functions in all loaded built-in modules.
+     * Walks back from the end of {@code expr} matching the trailing
+     * identifier-like token. Recognises four shapes:
+     * <ul>
+     *   <li>{@code prefix:local} → {@link CursorMode#PREFIXED_PARTIAL}</li>
+     *   <li>{@code prefix:} → {@link CursorMode#PREFIXED_EMPTY}</li>
+     *   <li>{@code local} (no colon, non-empty) → {@link CursorMode#BARE_PARTIAL}</li>
+     *   <li>empty/whitespace/non-NCName end → {@link CursorMode#NONE}</li>
+     * </ul>
+     * NCName chars: ASCII letter/digit/hyphen/underscore/period. Conservative —
+     * misses non-ASCII identifiers but is correct for the common case.
      */
-    private void addBuiltinFunctions(final XQueryContext pContext, final List<Sequence> completions)
-            throws XPathException {
+    static CursorToken parseTrailingToken(final String expr) {
+        if (expr == null || expr.isEmpty()) {
+            return new CursorToken("", "", CursorMode.NONE);
+        }
+        int end = expr.length();
+        int i = end;
+        while (i > 0 && isNCNameChar(expr.charAt(i - 1))) {
+            i--;
+        }
+        final String tail = expr.substring(i, end);
+        if (i > 0 && expr.charAt(i - 1) == ':') {
+            int j = i - 1;
+            int k = j;
+            while (k > 0 && isNCNameChar(expr.charAt(k - 1))) {
+                k--;
+            }
+            if (k < j) {
+                final String prefix = expr.substring(k, j);
+                return new CursorToken(prefix, tail,
+                        tail.isEmpty() ? CursorMode.PREFIXED_EMPTY : CursorMode.PREFIXED_PARTIAL);
+            }
+        }
+        if (tail.isEmpty()) {
+            return new CursorToken("", "", CursorMode.NONE);
+        }
+        return new CursorToken("", tail, CursorMode.BARE_PARTIAL);
+    }
+
+    private static String sortBucket(final String prefix) {
+        return NAMESPACE_BUCKET.getOrDefault(prefix == null ? "" : prefix, "9");
+    }
+
+    private static boolean isNCNameChar(final char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.';
+    }
+
+    /**
+     * Adds completion items for functions in built-in modules. When the cursor
+     * is scoped to a namespace ({@code prefix:} or {@code prefix:partial}),
+     * only that module's functions are emitted; otherwise all built-ins.
+     */
+    private void addBuiltinFunctions(final XQueryContext pContext, final List<Sequence> completions,
+            final CursorToken cursor) throws XPathException {
         final Set<String> seen = new HashSet<>();
         final Iterator<Module> modules = pContext.getAllModules();
 
@@ -174,28 +290,51 @@ public class Completions extends BasicFunction {
                     prefix = "";
                 }
             }
-            final FunctionSignature[] signatures = module.listFunctions();
 
-            for (final FunctionSignature sig : signatures) {
-                if (sig.isPrivate()) {
-                    continue;
-                }
+            // Namespace scoping: skip modules whose bound prefix doesn't match
+            // the cursor's prefix when the cursor is prefixed.
+            if (cursor.isPrefixed() && !cursor.prefix().equals(prefix)) {
+                continue;
+            }
 
-                final QName name = sig.getName();
-                final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
-
-                // Deduplicate overloaded functions
-                if (!seen.add(label)) {
-                    continue;
-                }
-
-                final String detail = sig.toString();
-                final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
-                final String insertText = formatInsertText(prefix, name.getLocalPart());
-
-                addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, documentation, insertText);
+            for (final FunctionSignature sig : module.listFunctions()) {
+                addBuiltinFunction(completions, sig, prefix, cursor, seen);
             }
         }
+    }
+
+    private void addBuiltinFunction(final List<Sequence> completions, final FunctionSignature sig,
+            final String prefix, final CursorToken cursor, final Set<String> seen) throws XPathException {
+        if (sig.isPrivate()) {
+            return;
+        }
+        final QName name = sig.getName();
+        if (cursor.isPrefixed() && !cursor.localPart().isEmpty()
+                && !startsWithIgnoreCase(name.getLocalPart(), cursor.localPart())) {
+            return;
+        }
+        final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
+        if (!seen.add(label)) {
+            return;
+        }
+        // In bare mode (user hasn't typed any prefix), an `fn:` item inserts
+        // without its prefix so accepting `cou` yields `count(...)`, not
+        // `fn:count(...)`. Other namespaces always need their prefix to
+        // resolve, so leave those alone.
+        final boolean dropFnPrefix = !cursor.isPrefixed() && "fn".equals(prefix);
+        final String insertText = dropFnPrefix
+                ? formatInsertText("", name.getLocalPart())
+                : formatInsertText(prefix, name.getLocalPart());
+        final String documentation = sig.getDescription() != null ? sig.getDescription() : "";
+        final String filterText = name.getLocalPart();
+        final String sortText = sortBucket(prefix) + "_" + name.getLocalPart() + "#" + sig.getArgumentCount();
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), documentation,
+                insertText, filterText, sortText, INSERT_TEXT_FORMAT_PLAIN);
+    }
+
+    private static boolean startsWithIgnoreCase(final String s, final String prefix) {
+        return s.length() >= prefix.length()
+                && s.regionMatches(true, 0, prefix, 0, prefix.length());
     }
 
     /**
@@ -203,7 +342,24 @@ public class Completions extends BasicFunction {
      */
     private void addKeywords(final List<Sequence> completions) throws XPathException {
         for (final String keyword : XQUERY_KEYWORDS) {
-            addCompletion(completions, keyword, COMPLETION_KIND_KEYWORD, "keyword", "", keyword);
+            // Keywords share the top bucket with fn:* — both are the most
+            // common things users type without a prefix.
+            addCompletion(completions, keyword, COMPLETION_KIND_KEYWORD, "keyword", "",
+                    keyword, keyword, "0_" + keyword, INSERT_TEXT_FORMAT_PLAIN);
+        }
+    }
+
+    /**
+     * Adds snippet completions (FLWOR, try/catch, typeswitch, declarations,
+     * imports). Clients that honor {@code insertTextFormat: 2} expand the
+     * tab-stop placeholders; clients that don't fall back to plain-text
+     * insertion per the LSP spec.
+     */
+    private void addSnippets(final List<Sequence> completions) throws XPathException {
+        for (final Snippet s : SNIPPETS) {
+            addCompletion(completions, s.trigger(), COMPLETION_KIND_SNIPPET, s.label(),
+                    "XQuery snippet", s.body(), s.trigger(), "0_" + s.trigger(),
+                    INSERT_TEXT_FORMAT_SNIPPET);
         }
     }
 
@@ -211,7 +367,7 @@ public class Completions extends BasicFunction {
      * Tries to compile the expression and adds user-declared functions and variables.
      */
     private void addUserDeclaredSymbols(final XQueryContext pContext, final String expr,
-            final List<Sequence> completions) throws XPathException {
+            final List<Sequence> completions, final CursorToken cursor) throws XPathException {
         try {
             final XQueryLexer lexer = new XQueryLexer(pContext, new StringReader(expr));
             final XQueryParser parser = new XQueryParser(lexer);
@@ -234,31 +390,17 @@ public class Completions extends BasicFunction {
             // User-declared functions
             final Iterator<UserDefinedFunction> funcs = pContext.localFunctions();
             while (funcs.hasNext()) {
-                final UserDefinedFunction func = funcs.next();
-                final FunctionSignature sig = func.getSignature();
-                final QName name = sig.getName();
-                final String prefix = name.getPrefix();
-                final String label = formatLabel(
-                        prefix != null ? prefix : "", name.getLocalPart(), sig.getArgumentCount());
-                final String detail = sig.toString();
-                final String insertText = formatInsertText(
-                        prefix != null ? prefix : "", name.getLocalPart());
-
-                addCompletion(completions, label, COMPLETION_KIND_FUNCTION, detail, "", insertText);
+                addUserFunction(completions, funcs.next().getSignature(), cursor);
             }
 
-            // User-declared global variables
+            // User-declared global variables — never offered in prefixed mode
+            if (cursor.isPrefixed()) {
+                return;
+            }
             for (int i = 0; i < path.getSubExpressionCount(); i++) {
                 final Expression step = path.getSubExpression(i);
                 if (step instanceof final VariableDeclaration varDecl) {
-                    final QName name = varDecl.getName();
-                    final String varName = "$" + formatQName(name);
-                    final SequenceType seqType = varDecl.getSequenceType();
-                    final String detail = seqType != null
-                            ? Type.getTypeName(seqType.getPrimaryType()) + seqType.getCardinality().toXQueryCardinalityString()
-                            : "";
-
-                    addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "", varName);
+                    addVariable(completions, varDecl);
                 }
             }
 
@@ -267,18 +409,61 @@ public class Completions extends BasicFunction {
         }
     }
 
+    private void addUserFunction(final List<Sequence> completions, final FunctionSignature sig,
+            final CursorToken cursor) throws XPathException {
+        final QName name = sig.getName();
+        final String prefix = name.getPrefix() != null ? name.getPrefix() : "";
+        if (cursor.isPrefixed() && !cursor.prefix().equals(prefix)) {
+            return;
+        }
+        if (cursor.isPrefixed() && !cursor.localPart().isEmpty()
+                && !startsWithIgnoreCase(name.getLocalPart(), cursor.localPart())) {
+            return;
+        }
+        final String label = formatLabel(prefix, name.getLocalPart(), sig.getArgumentCount());
+        final String insertText = formatInsertText(prefix, name.getLocalPart());
+        // User-defined functions rank in the top bucket alongside fn:/keywords
+        // — they're the symbols most relevant to the user's own code.
+        final String sortText = "0_" + name.getLocalPart() + "#" + sig.getArgumentCount();
+        addCompletion(completions, label, COMPLETION_KIND_FUNCTION, sig.toString(), "",
+                insertText, name.getLocalPart(), sortText, INSERT_TEXT_FORMAT_PLAIN);
+    }
+
+    private void addVariable(final List<Sequence> completions, final VariableDeclaration varDecl)
+            throws XPathException {
+        final QName name = varDecl.getName();
+        final String varName = "$" + formatQName(name);
+        final SequenceType seqType = varDecl.getSequenceType();
+        final String detail = seqType != null
+                ? Type.getTypeName(seqType.getPrimaryType()) + seqType.getCardinality().toXQueryCardinalityString()
+                : "";
+        // filterText drops the leading $ so typing "x" (or "$x") matches "$x"
+        addCompletion(completions, varName, COMPLETION_KIND_VARIABLE, detail, "",
+                varName, name.getLocalPart(), "0_" + name.getLocalPart(), INSERT_TEXT_FORMAT_PLAIN);
+    }
+
     /**
      * Creates a completion item map and adds it to the list.
+     *
+     * @param filterText text the client matches typed input against (usually
+     *        the local-name, so bare {@code cou} matches {@code fn:count})
+     * @param sortText sort key used by the client to order items; bucketed by
+     *        namespace via {@link #sortBucket} so {@code fn:*} ranks first
+     * @param insertTextFormat 1=PlainText, 2=Snippet (LSP InsertTextFormat)
      */
     private void addCompletion(final List<Sequence> completions, final String label,
             final long kind, final String detail, final String documentation,
-            final String insertText) throws XPathException {
+            final String insertText, final String filterText, final String sortText,
+            final long insertTextFormat) throws XPathException {
         final MapType item = new MapType(this, context);
         item.add(new StringValue(this, "label"), new StringValue(this, label));
         item.add(new StringValue(this, "kind"), new IntegerValue(this, kind));
         item.add(new StringValue(this, "detail"), new StringValue(this, detail));
         item.add(new StringValue(this, "documentation"), new StringValue(this, documentation));
         item.add(new StringValue(this, "insertText"), new StringValue(this, insertText));
+        item.add(new StringValue(this, "filterText"), new StringValue(this, filterText));
+        item.add(new StringValue(this, "sortText"), new StringValue(this, sortText));
+        item.add(new StringValue(this, "insertTextFormat"), new IntegerValue(this, insertTextFormat));
         completions.add(item);
     }
 
