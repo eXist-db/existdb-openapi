@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.9.0-SNAPSHOT",
+    "version": "0.9.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",

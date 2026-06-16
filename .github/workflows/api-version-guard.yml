@@ -1,0 +1,39 @@
+name: API version guard
+
+# The OpenAPI contract version (modules/api.json -> info.version) is tracked
+# independently of the package version (pom.xml): the contract changes far less
+# often than the package. This guard enforces the one invariant that keeps the
+# contract version honest — if api.json changes in a PR, info.version must change
+# too. It does not police the size of the bump (patch/minor/major); that is left
+# to the author's semver judgment (and to a future automation, see the follow-up).
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+jobs:
+  api-version-bump:
+    name: Require an info.version bump when api.json changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check modules/api.json info.version
+        run: |
+          base='${{ github.event.pull_request.base.sha }}'
+          if git diff --quiet "$base" HEAD -- modules/api.json; then
+            echo "modules/api.json unchanged in this PR — no API version bump required."
+            exit 0
+          fi
+          old=$(git show "$base:modules/api.json" | jq -r '.info.version')
+          new=$(jq -r '.info.version' modules/api.json)
+          echo "modules/api.json changed. info.version: '$old' -> '$new'"
+          if [ "$old" = "$new" ]; then
+            echo "::error file=modules/api.json::modules/api.json changed but info.version did not (still '$new'). The OpenAPI contract version is tracked independently of the package version — bump info.version whenever the API contract changes."
+            exit 1
+          fi
+          echo "info.version was bumped — OK"
