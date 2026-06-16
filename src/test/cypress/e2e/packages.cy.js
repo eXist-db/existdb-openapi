@@ -105,18 +105,37 @@ describe('/api/packages', () => {
       });
     });
 
-    // Multipart .xar upload. Driven via cy.exec + curl rather than cy.request:
-    // Cypress mangles raw binary bodies (Buffer↔JSON serialization), so a
-    // real multipart file upload can't go through cy.request reliably. curl
-    // exercises the actual endpoint with correct bytes.
+    // Multipart .xar upload via cy.request: read the fixture as a binary string,
+    // build the multipart/form-data envelope by hand, and send it with
+    // encoding: 'binary' so the bytes aren't UTF-8 mangled in transit. (Replaces
+    // an earlier cy.exec + curl workaround — cy.request handles binary uploads
+    // natively this way, with no dependency on curl being on the runner.)
     describe('multipart .xar upload', () => {
       const fixture = 'src/test/cypress/fixtures/test-multipart.xar';
       const pkgName = 'http://example.com/test-multipart';
+      const boundary = '----existdbOpenapiMultipartBoundary';
 
-      const uploadCmd = () =>
-        `curl -s -u admin: -X POST ` +
-        `-F "file=@${fixture};type=application/octet-stream" ` +
-        `"${Cypress.config('baseUrl')}/api/packages/install"`;
+      // cy.request returns the response body as a raw string under
+      // encoding: 'binary', so parse JSON defensively (handles either form).
+      const asJson = (response) =>
+        typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
+
+      const uploadXar = () =>
+        cy.readFile(fixture, 'binary').then((xar) =>
+          cy.request({
+            method: 'POST',
+            url: '/api/packages/install',
+            auth,
+            encoding: 'binary',
+            headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+            body:
+              `--${boundary}\r\n` +
+              `Content-Disposition: form-data; name="file"; filename="test-multipart.xar"\r\n` +
+              `Content-Type: application/octet-stream\r\n\r\n` +
+              xar + '\r\n' +
+              `--${boundary}--\r\n`
+          })
+        );
 
       after(() => {
         cy.request({
@@ -126,8 +145,8 @@ describe('/api/packages', () => {
       });
 
       it('installs and deploys an uploaded .xar', () => {
-        cy.exec(uploadCmd()).then(result => {
-          const body = JSON.parse(result.stdout);
+        uploadXar().then((response) => {
+          const body = asJson(response);
           expect(body.success).to.eq(true);
           expect(body.result.name).to.eq(pkgName);
           expect(body.result.version).to.eq('1.0.0');
@@ -142,8 +161,8 @@ describe('/api/packages', () => {
       });
 
       it('re-uploading a build replaces it idempotently', () => {
-        cy.exec(uploadCmd()).then(result => {
-          expect(JSON.parse(result.stdout).success).to.eq(true);
+        uploadXar().then((response) => {
+          expect(asJson(response).success).to.eq(true);
         });
       });
 
