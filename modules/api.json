@@ -1532,12 +1532,12 @@
           { "name": "escape-uri-attributes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: escape URI-valued HTML attributes." },
           { "name": "byte-order-mark", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: emit a byte-order mark." },
           { "name": "allow-duplicate-names", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C (JSON): allow duplicate keys." },
-          { "name": "expand-xincludes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: expand <xi:include> elements. Defaults to the conf.xml setting; set 'no' to preserve includes verbatim (e.g. for round-tripping)." },
-          { "name": "highlight-matches", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: mark full-text/index matches (none|attributes|elements|both)." },
-          { "name": "add-exist-id", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: add exist:id attributes (none|element|all)." },
-          { "name": "process-xsl-pi", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: act on xml-stylesheet processing instructions." },
-          { "name": "jsonp", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: wrap JSON output in the named JSONP callback." },
-          { "name": "insert-final-newline", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: append a trailing newline." }
+          { "name": "exist.expand-xincludes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension (implementation-defined, hence the exist. prefix): expand <xi:include> elements. Defaults to the conf.xml setting; set 'no' to preserve includes verbatim (e.g. for round-tripping)." },
+          { "name": "exist.highlight-matches", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: mark full-text/index matches (none|attributes|elements|both)." },
+          { "name": "exist.add-exist-id", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: add exist:id attributes (none|element|all)." },
+          { "name": "exist.process-xsl-pi", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: act on xml-stylesheet processing instructions." },
+          { "name": "exist.jsonp", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: wrap JSON output in the named JSONP callback." },
+          { "name": "exist.insert-final-newline", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: append a trailing newline." }
         ],
         "responses": {
           "200": {

@@ -905,11 +905,13 @@ describe('/api/db', () => {
       });
     });
 
-    it('expand-xincludes=no preserves <xi:include>; =yes expands it (eXist serializer extension, no #6447)', () => {
-      // expand-xincludes is emitted in the exist: serialization namespace, which
-      // eXist honors natively via fn:serialize — so this works on any eXist without
-      // eXist-db/exist#6447. The =no case is the data-loss-safe read: a round-trip
-      // (open with =no, save) keeps the includes literal instead of expand-and-destroy.
+    it('exist.expand-xincludes=no preserves <xi:include>; =yes expands it (eXist serializer extension, no #6447)', () => {
+      // expand-xincludes is an eXist serializer extension, so it is namespaced on the
+      // wire with the exist. prefix (the W3C params like indent stay unprefixed). It is
+      // emitted in the exist: serialization namespace, which eXist honors natively via
+      // fn:serialize — so this works on any eXist without eXist-db/exist#6447. The =no
+      // case is the data-loss-safe read: a round-trip (open with =no, save) keeps the
+      // includes literal instead of expand-and-destroy.
       const target = `${testCollection}/xi-target.xml`;
       const including = `${testCollection}/xi-including.xml`;
       store(target, '<para>included</para>', 'application/xml');
@@ -917,13 +919,13 @@ describe('/api/db', () => {
         '<doc xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include href="xi-target.xml"/></doc>',
         'application/xml');
 
-      cy.request({ url: `/api/db/resource?path=${including}&expand-xincludes=no`, auth }).then(response => {
+      cy.request({ url: `/api/db/resource?path=${including}&exist.expand-xincludes=no`, auth }).then(response => {
         expect(response.status).to.eq(200);
         expect(response.body).to.contain('<xi:include');
         expect(response.body).to.not.contain('included');
       });
 
-      cy.request({ url: `/api/db/resource?path=${including}&expand-xincludes=yes`, auth }).then(response => {
+      cy.request({ url: `/api/db/resource?path=${including}&exist.expand-xincludes=yes`, auth }).then(response => {
         expect(response.status).to.eq(200);
         expect(response.body).to.contain('<para>included</para>');
         expect(response.body).to.not.contain('<xi:include');

@@ -432,10 +432,20 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
  : (http://exist.sourceforge.net/NS/exist) rather than the W3C output: namespace.
  : eXist's serializer recognizes these natively as exist:-namespaced children of
  : output:serialization-parameters via fn:serialize, so expand-xincludes et al.
- : work on any eXist — no dependency on eXist-db/exist#6447. :)
+ : work on any eXist — no dependency on eXist-db/exist#6447.
+ :
+ : These names are the canonical local-names (used as the exist:-namespace element
+ : name). On the WIRE they are namespaced with an "exist." prefix
+ : (e.g. ?exist.expand-xincludes=no), so the query string mirrors the W3C-vs-eXist
+ : serialization split — the standard W3C params (indent, omit-xml-declaration, …)
+ : stay unprefixed, the implementation-defined eXist ones carry "exist.". A dot is
+ : used (not a colon) so the names are clean for OpenAPI tooling / SDK codegen. :)
 declare variable $dbc:serialization-exist-params as xs:string+ := (
     "expand-xincludes", "highlight-matches", "add-exist-id", "process-xsl-pi", "jsonp", "insert-final-newline"
 );
+
+(:~ The "exist." wire prefix on the eXist serializer extensions (see above). :)
+declare variable $dbc:serialization-exist-prefix as xs:string := "exist.";
 
 (:~
  : The serialization parameters this API accepts. The standard W3C vocabulary
@@ -476,11 +486,17 @@ declare variable $dbc:serialization-boolean-params as xs:string+ := (
 declare %private function dbc:serialization-params($opts as map(*)) as element(output:serialization-parameters)? {
     let $children :=
         for $name in $dbc:serialization-params
-        where exists($opts($name)) and string($opts($name)) ne ""
+        (: eXist extensions are read from the "exist."-prefixed wire key, but emitted
+         : with the canonical local-name in the exist: namespace; W3C params are plain. :)
+        let $key :=
+            if ($name = $dbc:serialization-exist-params)
+            then $dbc:serialization-exist-prefix || $name
+            else $name
+        where exists($opts($key)) and string($opts($key)) ne ""
         let $value :=
             if ($name = $dbc:serialization-boolean-params)
-            then dbc:yes-no($opts($name))
-            else string($opts($name))
+            then dbc:yes-no($opts($key))
+            else string($opts($key))
         let $ns :=
             if ($name = $dbc:serialization-exist-params)
             then "http://exist.sourceforge.net/NS/exist"
