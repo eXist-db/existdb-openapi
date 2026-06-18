@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.14.0",
+    "version": "0.15.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",
@@ -1857,6 +1857,71 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/db/collection/export": {
+      "get": {
+        "summary": "Export a collection subtree as a ZIP or installable .xar",
+        "operationId": "db:export-collection",
+        "description": "Streams the collection subtree under `path` as an archive. Binary resources are stored byte-for-byte; XML resources are serialized honoring the serialization parameters below (omitted params fall through to the conf.xml defaults). `format=zip` (default) names the file `<collectionName>.zip`; `format=xar` reads `expath-pkg.xml` at the collection root, names the file `<abbrev>-<version>.xar`, and places `expath-pkg.xml`/`repo.xml` at the archive root so the result is installable — a `xar` request for a collection without `expath-pkg.xml` is a 400. The caller's read permissions are honored (unreadable resources are skipped). The response body IS the archive; `Content-Disposition: attachment` makes the browser save it.",
+        "tags": [
+          "Database"
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Full DB path of the collection to export, recursively (decoded UTF-8, e.g. /db/apps/myapp)"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["zip", "xar"], "default": "zip" },
+            "description": "Archive format. `zip` for a plain download; `xar` for an installable EXPath package named from expath-pkg.xml."
+          },
+          { "name": "method", "in": "query", "schema": { "type": "string", "enum": ["xml", "xhtml", "html5", "text", "json", "adaptive", "microxml"] }, "description": "W3C serialization method (XML resources). Omit to use the conf.xml default; ignored for binary." },
+          { "name": "indent", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: pretty-print XML resources." },
+          { "name": "omit-xml-declaration", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: omit the <?xml ...?> declaration." },
+          { "name": "encoding", "in": "query", "schema": { "type": "string" }, "description": "W3C: output character encoding (e.g. UTF-8)." },
+          { "name": "media-type", "in": "query", "schema": { "type": "string" }, "description": "W3C: serialization media-type." },
+          { "name": "item-separator", "in": "query", "schema": { "type": "string" }, "description": "W3C: separator between serialized items." },
+          { "name": "standalone", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "omit"] }, "description": "W3C: standalone declaration." },
+          { "name": "doctype-public", "in": "query", "schema": { "type": "string" }, "description": "W3C: PUBLIC identifier for the DOCTYPE." },
+          { "name": "doctype-system", "in": "query", "schema": { "type": "string" }, "description": "W3C: SYSTEM identifier for the DOCTYPE." },
+          { "name": "cdata-section-elements", "in": "query", "schema": { "type": "string" }, "description": "W3C: space-separated element QNames serialized as CDATA sections." },
+          { "name": "normalization-form", "in": "query", "schema": { "type": "string" }, "description": "W3C: Unicode normalization form (NFC/NFD/NFKC/NFKD/none)." },
+          { "name": "html-version", "in": "query", "schema": { "type": "string" }, "description": "W3C: HTML version (with method=html5/xhtml)." },
+          { "name": "json-node-output-method", "in": "query", "schema": { "type": "string" }, "description": "W3C: serialization method for nodes nested in JSON output." },
+          { "name": "suppress-indentation", "in": "query", "schema": { "type": "string" }, "description": "W3C: space-separated element QNames whose content is not indented." },
+          { "name": "undeclare-prefixes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: undeclare namespace prefixes that go out of scope." },
+          { "name": "escape-uri-attributes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: escape URI-valued HTML attributes." },
+          { "name": "byte-order-mark", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: emit a byte-order mark." },
+          { "name": "allow-duplicate-names", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C (JSON): allow duplicate keys." },
+          { "name": "exist:expand-xincludes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension (implementation-defined, hence the exist: prefix): expand <xi:include> elements. Defaults to the conf.xml setting; set 'no' to package includes verbatim (round-trip fidelity)." },
+          { "name": "exist:highlight-matches", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: mark full-text/index matches (none|attributes|elements|both)." },
+          { "name": "exist:add-exist-id", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: add exist:id attributes (none|element|all)." },
+          { "name": "exist:process-xsl-pi", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: act on xml-stylesheet processing instructions." },
+          { "name": "exist:jsonp", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: wrap JSON output in the named JSONP callback." },
+          { "name": "exist:insert-final-newline", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: append a trailing newline." }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archive bytes (application/zip). `Content-Disposition: attachment` carries the filename — `<collectionName>.zip` or `<abbrev>-<version>.xar`.",
+            "content": {
+              "application/zip": { "schema": { "type": "string", "format": "binary" } }
+            }
+          },
+          "400": {
+            "description": "Missing path, or a xar request for a collection without expath-pkg.xml",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "404": {
+            "description": "Collection not found",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
         }
       }

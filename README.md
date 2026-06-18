@@ -80,6 +80,7 @@ non-exhaustive index of what's available, grouped by concern:
 |---|---|---|
 | `GET` | `/api/db` | List collection contents |
 | `POST` / `DELETE` | `/api/db/collection` | Create / remove collection |
+| `GET` | `/api/db/collection/export` | Download a collection subtree as a ZIP or installable `.xar` |
 | `POST` | `/api/db/copy` | Copy resource or collection |
 | `POST` | `/api/db/move` | Move resource or collection (with optional rename) |
 | `POST` | `/api/db/permissions` | Set permissions |
@@ -95,6 +96,19 @@ serialized from the node tree honoring W3C + eXist `output:` serialization param
 body (mime from the optional `&mime`, else inferred from the name) and returns
 `{ path }`. Paths are **decoded UTF-8** on the wire (send/receive `café.xml`, not
 `caf%C3%A9.xml`). For *metadata* (owner/perms/timestamps) call `/api/db/properties`.
+
+`/api/db/collection/export` downloads a whole collection subtree as one archive.
+`format=zip` (default) names the file `<collectionName>.zip`; `format=xar` reads the
+collection's `expath-pkg.xml`, names the file `<abbrev>-<version>.xar`, and places
+`expath-pkg.xml`/`repo.xml` at the archive root so the result installs via
+`repo:install-and-deploy` (a `xar` request for a collection without `expath-pkg.xml`
+is a `400`). Binary resources are stored byte-for-byte; **only XML resources** are run
+through the serializer, honoring the same W3C + eXist serialization params as
+`/api/db/resource` — the W3C ones plain (`indent`, `omit-xml-declaration`, …) and the
+eXist extensions under an `exist:` prefix (`exist:expand-xincludes`, …), with
+omitted params deferring to the `conf.xml` defaults. The caller's read permissions are
+honored. `Content-Disposition: attachment` makes the browser save the file. (Requires
+an eXist with `compression:zip`'s serialization-options argument — eXist-db/exist#6493.)
 
 To turn a DB path into its web-accessible (executable) URL, derive it client-side
 — there is no server-returned `runPath`:

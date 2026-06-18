@@ -33,6 +33,11 @@ declare namespace sm="http://exist-db.org/xquery/securitymanager";
 declare namespace expath="http://expath.org/ns/pkg";
 declare namespace dberr="http://exist-db.org/api/db-core/error";
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
+(: compression:* is eXist's built-in archive module — resolved by namespace URI
+ : (like repo: in packages.xqm), no `import module … at` needed. dbc:export-collection
+ : delegates the subtree walk / binary-safety / permission checks to compression:zip,
+ : passing the caller's serialization params as its 5th argument. :)
+declare namespace compression="http://exist-db.org/xquery/compression";
 
 (:~ Protected paths that cannot be deleted. :)
 declare variable $dbc:protected-paths := (
@@ -507,6 +512,69 @@ declare %private function dbc:serialization-params($opts as map(*)) as element(o
 (:~ Normalize a boolean serialization value to the W3C "yes"/"no" form. :)
 declare %private function dbc:yes-no($value as xs:string) as xs:string {
     if (lower-case($value) = ("yes", "true", "1")) then "yes" else "no"
+};
+
+(:~
+ : Export a whole collection subtree as a ZIP, or as an installable EXPath `.xar`.
+ :
+ : Delegates to eXist's compression:zip, which recurses the subtree, stores binary
+ : resources byte-for-byte, serializes only the XML resources, strips the collection
+ : prefix so entries are archive-root-relative, and enforces the caller's read access
+ : (it runs as the authenticated subject). The caller's serialization params (indent /
+ : omit-xml-declaration / expand-xincludes / the full $dbc:serialization-params
+ : vocabulary) are passed as compression:zip's 5th argument — the
+ : <output:serialization-parameters> element from the shared dbc:serialization-params
+ : helper (#59's exist:-namespace expand-xincludes form), which the serialization arg
+ : accepts directly. Omitted params fall through to the conf.xml serializer defaults
+ : (the no-arg path). Entry names are archive-root-relative
+ : (/db/apps/myapp/expath-pkg.xml -> expath-pkg.xml) — required for a `.xar` to be
+ : installable via repo:install-and-deploy.
+ :
+ : REQUIRES eXist with the compression serialization-options argument (eXist-db/exist
+ : #6493, which also carries the strip-prefix-for-4/5-arg fix b680220c3e). On an eXist
+ : without it the 5-arg call raises XPST0017; the feature ships as part of that stack.
+ :
+ : @param $wire-path collection to export (wire/decoded form)
+ : @param $format "zip" (default) or "xar"
+ : @param $opts serialization params (indent/omit-xml-declaration/expand-xincludes/…)
+ : @return { filename, mime-type, content } — content is the archive (xs:base64Binary)
+ : @error bad-request on a missing path, or a "xar" request for a collection without
+ :        an expath-pkg.xml; not-found if the collection does not exist
+ :)
+declare function dbc:export-collection($wire-path as xs:string?, $format as xs:string?, $opts as map(*)) as map(*) {
+    let $path := dbc:to-stored($wire-path)
+    let $fmt := if ($format = "xar") then "xar" else "zip"
+    return
+        if (empty($path) or $path eq "")
+        then dbc:error("bad-request", "Missing required parameter: path", map {})
+        else if (not(xmldb:collection-available($path)))
+        then dbc:error("not-found", "Collection not found: " || dbc:to-display($path), map {})
+        else
+            let $expath := doc($path || "/expath-pkg.xml")/expath:package
+            return
+                if ($fmt eq "xar" and empty($expath))
+                then dbc:error("bad-request",
+                    "Not an EXPath package (missing expath-pkg.xml): " || dbc:to-display($path), map {})
+                else
+                    let $ser := dbc:serialization-params($opts)
+                    (: 5-arg (strip-prefix, encoding, serialization-options) when the caller
+                     : supplied params; the no-options 3-arg form otherwise so we don't pass
+                     : an empty serialization arg. Both strip correctly and yield a valid
+                     : (empty) archive for an empty subtree. :)
+                    let $archive :=
+                        if (exists($ser))
+                        then compression:zip(xs:anyURI($path), true(), $path, "UTF-8", $ser)
+                        else compression:zip(xs:anyURI($path), true(), $path)
+                    let $filename :=
+                        if ($fmt eq "xar")
+                        then ($expath/@abbrev[. ne ""], replace($expath/@name, "^.*/", ""))[1]
+                            || "-" || $expath/@version || ".xar"
+                        else replace(dbc:to-display($path), "^.*/", "") || ".zip"
+                    return map {
+                        "filename": $filename,
+                        "mime-type": "application/zip",
+                        "content": $archive
+                    }
 };
 
 (:~

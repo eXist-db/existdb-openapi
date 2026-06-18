@@ -243,6 +243,35 @@ declare function db:copy($request as map(*)) {
 };
 
 (:~
+ : Export a collection subtree as a downloadable archive.
+ : GET /api/db/collection/export?path=…&format=zip|xar&indent=&omit-xml-declaration=&expand-xincludes=…
+ :
+ : The body IS the archive bytes; Content-Disposition: attachment makes the browser
+ : save rather than render. The serialization params are applied to XML resources
+ : only — binaries are stored byte-for-byte (see dbc:export-collection). The whole
+ : params map is forwarded so the full serialization vocabulary is available, same as
+ : GET /api/db/resource. set-header is forced before the body via [last()] so the
+ : filename is set before streaming begins.
+ :)
+declare function db:export-collection($request as map(*)) {
+    try {
+        let $export :=
+            dbc:export-collection(
+                $request?parameters?path,
+                $request?parameters?format,
+                $request?parameters
+            )
+        let $disp :=
+            response:set-header("Content-Disposition",
+                'attachment; filename="' || $export?filename || '"')
+        return
+            ($disp, $export?content => response:stream-binary($export?("mime-type"), ()))[last()]
+    } catch * {
+        db:error-response($err:code, $err:description, $err:value)
+    }
+};
+
+(:~
  : Get properties of a resource or collection.
  : GET /api/db/properties?path=...
  :)
