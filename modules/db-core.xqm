@@ -121,9 +121,11 @@ declare %private function dbc:full-encode($path as xs:string?) as xs:string? {
  :   - otherwise whichever of the canonical or legacy full-encoded forms actually
  :     exists, so e.g. opening "it's.xml" still finds an old "it%27s.xml".
  : This is the single place legacy-name read-compat lives; callers pass a wire path
- : exactly as they would to db-core:to-stored.
+ : exactly as they would to db-core:to-stored. Public so the roaster wrapper
+ : (db.xqm) can resolve the same legacy-aware path for its own existence check and
+ : binary streaming, staying consistent with the read handlers.
  :)
-declare %private function dbc:resolve-stored($wire as xs:string?) as xs:string? {
+declare function dbc:resolve-stored($wire as xs:string?) as xs:string? {
     if (empty($wire)) then $wire
     else
         let $canonical := dbc:to-stored($wire)
@@ -624,11 +626,24 @@ declare function dbc:remove-resource($wire-path as xs:string?) as map(*) {
 };
 
 (:~
- : Create a collection.
+ : Create a collection (strict: the parent must already exist).
  : @param $wire-path collection path (wire/decoded form)
- : @error bad-request on a missing path or a path outside /db
+ : @error bad-request on a missing path or a path outside /db; conflict if the
+ :        parent collection does not exist
  :)
 declare function dbc:create-collection($wire-path as xs:string?) as map(*) {
+    dbc:create-collection($wire-path, false())
+};
+
+(:~
+ : Create a collection.
+ : @param $wire-path collection path (wire/decoded form)
+ : @param $recursive when true, create any missing ancestor collections (mkdir -p);
+ :        when false (the default arity), the parent must already exist
+ : @error bad-request on a missing path or a path outside /db; conflict when a
+ :        strict (non-recursive) create finds the parent collection missing
+ :)
+declare function dbc:create-collection($wire-path as xs:string?, $recursive as xs:boolean) as map(*) {
     let $path := dbc:resolve-stored($wire-path)
     return
         if (empty($path))
@@ -638,8 +653,37 @@ declare function dbc:create-collection($wire-path as xs:string?) as map(*) {
         else
             let $parent := replace($path, "/[^/]+$", "")
             let $name := replace($path, "^.*/", "")
-            let $created := xmldb:create-collection($parent, $name)
-            return map { "created": dbc:to-display($created) }
+            return
+                if (not($recursive) and not(xmldb:collection-available($parent)))
+                then dbc:error("conflict",
+                    "Parent collection does not exist: " || dbc:to-display($parent)
+                    || " (pass recursive=true to create intermediate collections)", map {})
+                else
+                    let $created :=
+                        if ($recursive)
+                        then dbc:ensure-collection-path($path)
+                        else xmldb:create-collection($parent, $name)
+                    return map { "created": dbc:to-display($created) }
+};
+
+(:~
+ : Ensure a collection and all its ancestors exist (mkdir -p), creating each missing
+ : level top-down from /db. Returns the stored path of the leaf collection.
+ :)
+declare %private function dbc:ensure-collection-path($path as xs:string) as xs:string {
+    let $segments := tokenize($path, "/")[. ne ""]
+    return
+        fold-left(tail($segments), "/" || head($segments),
+            function($parent as xs:string, $seg as xs:string) as xs:string {
+                let $child := $parent || "/" || $seg
+                return (
+                    (if (xmldb:collection-available($child))
+                     then ()
+                     else xmldb:create-collection($parent, $seg)),
+                    $child
+                )[last()]
+            }
+        )
 };
 
 (:~

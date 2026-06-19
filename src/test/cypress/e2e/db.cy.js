@@ -128,6 +128,33 @@ describe('/api/db', () => {
         expect(response.body.path).to.eq(testCollection);
       });
     });
+
+    it('strict (default): a missing parent is a clean 409', () => {
+      cy.request({
+        url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false,
+        body: { path: `${testCollection}/no-such-parent/child` }
+      }).then(response => {
+        expect(response.status).to.eq(409);
+        expect(response.body).to.have.property('error');
+      });
+    });
+
+    it('recursive:true creates missing ancestor collections (mkdir -p)', () => {
+      const deep = `${testCollection}/a/b/c`;
+      cy.request({
+        url: '/api/db/collection', method: 'POST', auth,
+        body: { path: deep, recursive: true }
+      }).then(response => {
+        expect(response.status).to.be.oneOf([200, 201]);
+      });
+      // every level now exists
+      cy.request({ url: `/api/db?path=${enc(`${testCollection}/a/b`)}`, auth }).then(r => {
+        expect(r.body.type).to.eq('collection');
+      });
+      cy.request({ url: `/api/db?path=${enc(deep)}`, auth }).then(r => {
+        expect(r.body.type).to.eq('collection');
+      });
+    });
   });
 
   describe('PUT /api/db/resource — store', () => {
@@ -264,11 +291,9 @@ describe('/api/db', () => {
     const permSubCollection = `${testCollection}/perm-sub`;
 
     before(() => {
-      // Resource for resource-permission tests
-      cy.request({
-        url: '/api/db/resource', method: 'PUT', auth,
-        body: { path: permResource, content: '<r/>', 'mime-type': 'application/xml' }
-      });
+      // Resource for resource-permission tests (raw store; the consolidated PUT takes
+      // the path as a query param + raw body, not a JSON envelope)
+      store(permResource, '<r/>', 'application/xml');
       // Sub-collection for collection-permission tests
       cy.request({
         url: '/api/db/collection', method: 'POST', auth,
@@ -780,7 +805,9 @@ describe('/api/db', () => {
   // (NOT execution output), and download=true sets Content-Disposition: attachment.
   describe('GET/PUT /api/db/resource — raw transport', () => {
     const coll = `${testCollection}/raw`;
-    before(() => cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: coll } }));
+    // recursive:true so this block is self-sufficient — the DELETE /api/db/collection
+    // block above removes testCollection, so the parent may not exist here.
+    before(() => cy.request({ url: '/api/db/collection', method: 'POST', auth, failOnStatusCode: false, body: { path: coll, recursive: true } }));
 
     it('PUT then GET round-trips raw binary content (not base64-mangled)', () => {
       const content = 'raw-bytes-not-b64-payload';
@@ -1022,7 +1049,8 @@ describe('/api/db', () => {
     it('GET resolves a legacy full-encoded name by its decoded name', () => {
       cy.request({ url: `/api/db/resource?path=${encodeURIComponent(`${rc}/it's.xml`)}`, auth }).then(r => {
         expect(r.status).to.eq(200);
-        expect(r.body.content).to.contain('legacy');
+        // consolidated GET returns the raw body (not a {content} envelope)
+        expect(r.body).to.contain('legacy');
       });
     });
 

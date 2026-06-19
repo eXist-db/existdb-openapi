@@ -1701,7 +1701,7 @@
       "post": {
         "summary": "Create collection",
         "operationId": "db:create-collection",
-        "description": "Creates a new collection in the database. Parent collections are created automatically if they do not exist.",
+        "description": "Creates a new collection. By default the parent collection must already exist — a missing parent returns 409. Pass `recursive: true` to create any missing ancestor collections (mkdir -p).",
         "tags": [
           "Database"
         ],
@@ -1718,6 +1718,11 @@
                   "path": {
                     "type": "string",
                     "description": "Full DB path for the new collection"
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Create any missing ancestor collections (mkdir -p). Default false: the parent collection must already exist."
                   }
                 }
               }
@@ -1746,6 +1751,16 @@
           },
           "400": {
             "description": "Bad request — missing or invalid path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Parent collection does not exist (pass recursive=true to create intermediate collections)",
             "content": {
               "application/json": {
                 "schema": {

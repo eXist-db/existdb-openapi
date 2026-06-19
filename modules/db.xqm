@@ -45,7 +45,12 @@ declare %private function db:error-response(
             "server-error": 500
         }(local-name-from-QName($code)), 500)[1]
     let $extra := if ($value instance of map(*)) then $value else map {}
-    return roaster:response($status, map:merge((map { "error": $description }, $extra)))
+    (: Pin the response media-type to application/json. Otherwise an error mapped to
+       a status the route doesn't declare in api.json falls back to roaster's
+       application/xml default, and the error map fails with SENR0001 ("cannot
+       serialize a map with the XML output method"). See eeditiones/roaster#127. :)
+    return roaster:response($status, "application/json",
+        map:merge((map { "error": $description }, $extra)), ())
 };
 
 (:~
@@ -87,7 +92,10 @@ declare function db:get-resource($request as map(*)) {
             if (empty($wire) or $wire = "")
             then roaster:response(400, map { "error": "Missing required parameter: path" })
             else
-                let $stored := dbc:to-stored($wire)
+                (: resolve-stored (not to-stored) so the existence check + binary
+                   streaming below honor legacy full-encoded names, consistent with
+                   dbc:get-resource / dbc:properties (read-compat for old clients). :)
+                let $stored := dbc:resolve-stored($wire)
                 return
                     if (not(doc-available($stored)) and not(util:binary-doc-available($stored)))
                     then roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
@@ -170,7 +178,7 @@ declare function db:remove-resource($request as map(*)) {
  :)
 declare function db:create-collection($request as map(*)) {
     try {
-        roaster:response(201, dbc:create-collection($request?body?path))
+        roaster:response(201, dbc:create-collection($request?body?path, $request?body?recursive = true()))
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
