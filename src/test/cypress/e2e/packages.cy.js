@@ -105,37 +105,33 @@ describe('/api/packages', () => {
       });
     });
 
-    // Multipart .xar upload via cy.request: read the fixture as a binary string,
-    // build the multipart/form-data envelope by hand, and send it with
-    // encoding: 'binary' so the bytes aren't UTF-8 mangled in transit. (Replaces
-    // an earlier cy.exec + curl workaround — cy.request handles binary uploads
-    // natively this way, with no dependency on curl being on the runner.)
+    // Multipart .xar upload. The fixture is read as a binary string, turned into
+    // a byte-preserving Blob, and appended to a FormData "file" part, which
+    // cy.request uploads with an auto-generated multipart/form-data boundary.
+    //
+    // We assert on the upload's HTTP status only, and verify the installed
+    // package's identity with a follow-up GET /api/packages/{name}. That keeps
+    // the whole flow inside cy.request (same-origin via baseUrl, through the
+    // Cypress proxy) — no cross-origin fetch — and reads the deployed state
+    // from a plain JSON endpoint instead of relying on the upload response body.
     describe('multipart .xar upload', () => {
-      const fixture = 'src/test/cypress/fixtures/test-multipart.xar';
+      const fixture = 'test-multipart.xar'; // relative to fixturesFolder
       const pkgName = 'http://example.com/test-multipart';
-      const boundary = '----existdbOpenapiMultipartBoundary';
-
-      // cy.request returns the response body as a raw string under
-      // encoding: 'binary', so parse JSON defensively (handles either form).
-      const asJson = (response) =>
-        typeof response.body === 'string' ? JSON.parse(response.body) : response.body;
 
       const uploadXar = () =>
-        cy.readFile(fixture, 'binary').then((xar) =>
-          cy.request({
-            method: 'POST',
-            url: '/api/packages/install',
-            auth,
-            encoding: 'binary',
-            headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-            body:
-              `--${boundary}\r\n` +
-              `Content-Disposition: form-data; name="file"; filename="test-multipart.xar"\r\n` +
-              `Content-Type: application/octet-stream\r\n\r\n` +
-              xar + '\r\n' +
-              `--${boundary}--\r\n`
-          })
-        );
+        cy.fixture(fixture, 'binary')
+          .then((bin) => Cypress.Blob.binaryStringToBlob(bin, 'application/octet-stream'))
+          .then((blob) => {
+            const formData = new FormData();
+            formData.append('file', blob, 'test-multipart.xar');
+            return cy.request({
+              url: '/api/packages/install',
+              method: 'POST',
+              auth,
+              body: formData,
+              timeout: 30000
+            });
+          });
 
       after(() => {
         cy.request({
@@ -145,12 +141,12 @@ describe('/api/packages', () => {
       });
 
       it('installs and deploys an uploaded .xar', () => {
-        uploadXar().then((response) => {
-          const body = asJson(response);
-          expect(body.success).to.eq(true);
-          expect(body.result.name).to.eq(pkgName);
-          expect(body.result.version).to.eq('1.0.0');
-          expect(body.result.target).to.match(/test-multipart$/);
+        uploadXar().its('status').should('eq', 200);
+        cy.request({ url: '/api/packages/test-multipart', auth }).then(response => {
+          expect(response.body.name).to.eq(pkgName);
+          expect(response.body.version).to.eq('1.0.0');
+          expect(response.body.abbrev).to.eq('test-multipart');
+          expect(response.body.target).to.eq('test-multipart');
         });
       });
 
@@ -161,9 +157,9 @@ describe('/api/packages', () => {
       });
 
       it('re-uploading a build replaces it idempotently', () => {
-        uploadXar().then((response) => {
-          expect(asJson(response).success).to.eq(true);
-        });
+        uploadXar().its('status').should('eq', 200);
+        cy.request({ url: '/api/packages/test-multipart', auth })
+          .its('body.version').should('eq', '1.0.0');
       });
 
       it('does not leave the temp .xar in /db/system/repo', () => {
