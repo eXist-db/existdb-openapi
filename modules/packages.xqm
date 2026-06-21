@@ -138,10 +138,19 @@ declare %private function packages:repo-meta(
 declare %private function packages:get-deployment-date(
     $expath as map(*), $repo as map(*)
 ) as xs:string? {
+    (: doc() throws FODC0005 on a path with illegal characters — e.g. when a
+       package's version wasn't substituted at build time and the repo directory
+       is named "<abbrev>-${app.version}". Guard it so a malformed package yields
+       no date instead of failing the read. :)
     let $doc :=
-        if ($repo?target)
-        then doc('/db/apps/' || $repo?target || '/repo.xml')
-        else doc('/db/system/repo/' || $expath?abbrev || '-' || $expath?version || '/repo.xml')
+        try {
+            if ($repo?target)
+            then doc('/db/apps/' || $repo?target || '/repo.xml')
+            else doc('/db/system/repo/' || $expath?abbrev || '-' || $expath?version || '/repo.xml')
+        }
+        catch * {
+            ()
+        }
 
     return $doc//repo:deployed/text()
 };
@@ -153,15 +162,27 @@ declare %private function packages:get-deployment-date(
 declare %private function packages:full-meta(
     $package-uri as xs:string
 ) as map(*) {
-    let $expath := packages:expath-meta($package-uri)
-    let $repo := packages:repo-meta($package-uri)
-    let $date := packages:get-deployment-date($expath, $repo)
+    (: Isolate per-package failures so one malformed package can't poison the
+       whole listing — a degraded entry still carries the uri (and an error
+       marker) so the package stays visible and removable by abbrev. :)
+    try {
+        let $expath := packages:expath-meta($package-uri)
+        let $repo := packages:repo-meta($package-uri)
+        let $date := packages:get-deployment-date($expath, $repo)
 
-    return map:merge((
-        map { "uri": $package-uri, "date": $date },
-        $expath,
-        $repo
-    ))
+        return map:merge((
+            map { "uri": $package-uri, "date": $date },
+            $expath,
+            $repo
+        ))
+    }
+    catch * {
+        map {
+            "uri": $package-uri,
+            "name": $package-uri,
+            "error": $err:description
+        }
+    }
 };
 
 (:~
