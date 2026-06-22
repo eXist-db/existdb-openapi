@@ -27,7 +27,7 @@ jobs:
     name: Require an info.version bump when api.json changes
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check modules/api.json info.version
