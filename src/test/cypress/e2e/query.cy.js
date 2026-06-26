@@ -254,9 +254,9 @@ describe('/api/query', () => {
     // Regression: PR #41's try/catch wrapped every cursor:eval error with
     // "Invalid context-item:" AND returned HTTP 200, breaking eXide's
     // error-display path (which relies on `if (!response.ok)`).
-    // cursor:eval errors must now propagate with their original code/
-    // description and a non-200 status.
-    it('lets cursor:eval errors propagate with structured fields and HTTP 5xx', () => {
+    // cursor:eval errors must surface with their original code and a non-200
+    // status, never mislabeled as a context-item error.
+    it('surfaces a cursor:eval error as a structured QueryError, not a 200', () => {
       cy.request({
         url: '/api/query',
         method: 'POST',
@@ -264,14 +264,46 @@ describe('/api/query', () => {
         body: { query: '//does-not-exist:foo' },
         failOnStatusCode: false
       }).then(response => {
-        expect(response.status).to.be.oneOf([400, 500]);
-        // Structured XPathException → JSON: { code, description, line, column, module, value }
-        expect(response.body).to.have.property('code');
+        expect(response.status).to.eq(400);
+        // QueryError envelope: { code, message, line, column, raw }
         expect(response.body.code).to.match(/XPST0081/);
-        expect(response.body).to.have.property('description');
-        expect(response.body).to.have.property('line');
+        expect(response.body).to.have.property('message');
+        expect(response.body).to.have.property('raw');
         // Must NOT be mislabeled as a context-item error
-        expect(response.body.description).to.not.include('Invalid context-item');
+        expect(response.body.message).to.not.include('Invalid context-item');
+        expect(response.body.raw).to.not.include('Invalid context-item');
+      });
+    });
+
+    // The envelope must carry user-relative line/column (the position in the
+    // submitted query) so an editor can place a marker — not the wrapper-module
+    // coordinates the uncaught error used to leak.
+    it('reports user-relative line/column and a clean message for a syntax error', () => {
+      cy.request({
+        url: '/api/query', method: 'POST', auth,
+        body: { query: '1 to' }, failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.eq(400);
+        expect(response.body.code).to.eq('err:XPST0003');
+        expect(response.body.line).to.eq(1);
+        expect(response.body.column).to.eq(5);
+        expect(response.body.message).to.eq('unexpected token: null');
+        // clean message: no Java class, no W3C boilerplate, no [at line] suffix
+        expect(response.body.message).to.not.include('org.exist');
+        expect(response.body.message).to.not.include('It is a static error');
+        expect(response.body.message).to.not.include('[at line');
+      });
+    });
+
+    // line/column track the user's frame: the error moves with the input.
+    it('tracks the error line when the query is preceded by blank lines', () => {
+      cy.request({
+        url: '/api/query', method: 'POST', auth,
+        body: { query: '\n\n1 to' }, failOnStatusCode: false
+      }).then(response => {
+        expect(response.status).to.eq(400);
+        expect(response.body.line).to.eq(3);
+        expect(response.body.column).to.eq(5);
       });
     });
 
