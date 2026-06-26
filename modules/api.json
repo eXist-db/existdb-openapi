@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",
@@ -79,6 +79,46 @@
         ],
         "example": {
           "error": "Resource not found: /db/nonexistent.xml"
+        }
+      },
+      "QueryError": {
+        "type": "object",
+        "description": "Structured error envelope for a failed query evaluation. `line`/`column` are 1-based and user-relative — the position in the submitted `query`, the same frame an editor uses — so a client can place an error marker without parsing prose.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Error QName, e.g. `err:XPST0003`"
+          },
+          "message": {
+            "type": "string",
+            "description": "The human-readable reason, with eXist's framing removed (no W3C boilerplate, leaked Java class name, or `[at line …]` suffix)"
+          },
+          "line": {
+            "type": "integer",
+            "nullable": true,
+            "description": "1-based, user-relative line of the error in the submitted query; null when the error carries no position"
+          },
+          "column": {
+            "type": "integer",
+            "nullable": true,
+            "description": "1-based, user-relative column; null when the error carries no position"
+          },
+          "raw": {
+            "type": "string",
+            "description": "The unmodified `$err:description`, retained so no detail is lost"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "raw"
+        ],
+        "example": {
+          "code": "err:XPST0003",
+          "message": "unexpected token: null",
+          "line": 1,
+          "column": 5,
+          "raw": "It is a static error if an expression is not a valid instance of the grammar defined in A.1 EBNF. org.exist.xquery.XPathException: err:XPST0003 unexpected token: null [at line 1, column 5]"
         }
       }
     }
@@ -428,11 +468,14 @@
             }
           },
           "400": {
-            "description": "Bad request — missing `query` field or malformed `context-item` XML",
+            "description": "Bad request. Either a request-validation error (missing `query` field or malformed `context-item` XML) with an `{ error }` body, or — when the submitted query itself fails to compile or evaluate (a standard XPath/XQuery error) — a structured `QueryError` body with user-relative `line`/`column`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/Error" },
+                    { "$ref": "#/components/schemas/QueryError" }
+                  ]
                 }
               }
             }
@@ -448,19 +491,11 @@
             }
           },
           "500": {
-            "description": "Server-side error during query compilation or evaluation. Body carries the structured XPathException fields (`code`, `description`, `line`, `column`, `module`, `value`) so clients can surface the real cause.",
+            "description": "Internal failure during query compilation or evaluation (an error outside the standard XPath/XQuery `err:` namespace). Body is a structured `QueryError` so clients can surface the real cause.",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "code":        { "type": "string",  "description": "Error QName, e.g. `err:XPST0081`" },
-                    "description": { "type": "string" },
-                    "line":        { "type": "integer" },
-                    "column":      { "type": "integer" },
-                    "module":      { "type": "string", "nullable": true },
-                    "value":       { "nullable": true }
-                  }
+                  "$ref": "#/components/schemas/QueryError"
                 }
               }
             }

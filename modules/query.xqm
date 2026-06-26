@@ -45,6 +45,104 @@ declare %private function query:serialization-params($params as map(*)) as map(*
 };
 
 (:~
+ : Determine the user-relative error coordinates — the position in the client's
+ : submitted query, the frame an editor needs to place a marker.
+ :
+ : eXist surfaces the position two different ways depending on the error:
+ :   - Parse errors (XPST0003) embed it in the description as "[at line N,
+ :     column M]" — and there $err:line-number/$err:column-number are instead the
+ :     wrapper-module call site (useless), so the embedded value is authoritative.
+ :   - Other errors (XPST0008, XPTY0004, XPST0017, …) leave the description
+ :     position-free and put the user-relative position directly in
+ :     $err:line-number/$err:column-number.
+ : So: prefer the embedded "[at line …]" when present, else fall back to the
+ : $err: variables. Returns an empty map when neither yields a position (e.g. a
+ : parse-xml content error, which has no location in the query).
+ :
+ : Note we only ever see the user-relative embedded location here: Roaster
+ : appends a second, wrapper-relative "[at line X column Y in module unknown]"
+ : when it serializes an *uncaught* error, but catching here means we never do.
+ :
+ : @param $description the raw $err:description
+ : @param $line the $err:line-number
+ : @param $column the $err:column-number
+ : @return map { "line": xs:integer, "column": xs:integer } or map {}
+ :)
+declare %private function query:error-coordinates(
+    $description as xs:string?, $line as xs:integer?, $column as xs:integer?
+) as map(*) {
+    let $match := analyze-string(($description, "")[1],
+        "\[at line\s+(\d+),?\s+column\s+(\d+)")//fn:match[1]
+    return
+        if (exists($match))
+        then map {
+            "line":   xs:integer($match/fn:group[@nr = "1"]),
+            "column": xs:integer($match/fn:group[@nr = "2"])
+        }
+        else if (exists($line) and $line gt 0)
+        then map { "line": $line, "column": $column }
+        else map {}
+};
+
+(:~
+ : Strip eXist's framing from an error description, leaving just the human
+ : message: the trailing "[at line ...]" location, any leaked Java exception
+ : class name, a repeated "err:CODE" token, and the leading W3C normative
+ : boilerplate (identical for every instance of a given error code). Best-effort
+ : — the unmodified text is always preserved in the envelope's "raw" field — but
+ : it cleans the eXist shapes editor clients care about (XPST*, XPTY*, FO*).
+ :
+ : @param $description the raw $err:description
+ : @return the cleaned, single-line message
+ :)
+declare %private function query:clean-message($description as xs:string?) as xs:string? {
+    if (empty($description)) then $description
+    else
+        let $no-location := replace($description, "\s*\[at line\s[\s\S]*$", "")
+        let $no-class    := replace($no-location, "\s*(org\.exist\.[\w.]+|java\.[\w.]+):\s*", " ")
+        let $no-code     := replace($no-class, "err:[A-Z][A-Z0-9]+\s+", "")
+        let $no-boiler   := replace($no-code, "^It is (a|an) [\s\S]*? error[\s\S]*?\.\s+", "")
+        (: never strip down to nothing — fall back to the pre-boilerplate text :)
+        let $message     := if (normalize-space($no-boiler) = "") then $no-code else $no-boiler
+        return normalize-space($message)
+};
+
+(:~
+ : Build the JSON error envelope for a failed query evaluation. Exposes
+ : user-relative line/column at the top level, a clean human message, the
+ : err: code, and the unmodified description under "raw" so no detail is lost.
+ : Standard XPath/XQuery errors (the xqt-errors namespace) mean the submitted
+ : query is at fault and map to HTTP 400; anything else is an internal failure
+ : and maps to 500.
+ :
+ : @param $code the $err:code QName
+ : @param $description the raw $err:description
+ : @param $line the $err:line-number
+ : @param $column the $err:column-number
+ : @return a Roaster response with the appropriate status
+ :)
+declare %private function query:error-response(
+    $code as xs:QName?, $description as xs:string?,
+    $line as xs:integer?, $column as xs:integer?
+) {
+    let $coordinates := query:error-coordinates($description, $line, $column)
+    let $is-query-error :=
+        exists($code) and namespace-uri-from-QName($code) = "http://www.w3.org/2005/xqt-errors"
+    return roaster:response(
+        if ($is-query-error) then 400 else 500,
+        "application/json",
+        map {
+            "code":    if ($is-query-error) then "err:" || local-name-from-QName($code)
+                       else if (exists($code)) then string($code) else (),
+            "message": query:clean-message($description),
+            "line":    $coordinates?line,
+            "column":  $coordinates?column,
+            "raw":     $description
+        }
+    )
+};
+
+(:~
  : Execute a query and return a cursor for paginated retrieval.
  : POST /api/query
  :
@@ -76,12 +174,23 @@ declare function query:execute($request as map(*)) {
                 else
                     let $mlp := if ($module-load-path) then $module-load-path else ()
                     return
-                        if (exists($context-item)) then
-                            cursor:eval($expression, $mlp, $context-item)
-                        else if (exists($mlp)) then
-                            cursor:eval($expression, $mlp)
-                        else
-                            cursor:eval($expression)
+                        (: Catch the user's query errors here rather than letting them
+                         : propagate to Roaster: by the time Roaster serializes an uncaught
+                         : error the top-level line/column have been rewritten to the
+                         : cursor:eval call site (useless for an editor marker). Caught here,
+                         : the description still carries the user-relative position. :)
+                        try {
+                            if (exists($context-item)) then
+                                cursor:eval($expression, $mlp, $context-item)
+                            else if (exists($mlp)) then
+                                cursor:eval($expression, $mlp)
+                            else
+                                cursor:eval($expression)
+                        }
+                        catch * {
+                            query:error-response($err:code, $err:description,
+                                $err:line-number, $err:column-number)
+                        }
 };
 
 (:~
