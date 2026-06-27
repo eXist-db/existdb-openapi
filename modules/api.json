@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",
@@ -1344,7 +1344,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Collection metadata with children array. Each item carries a `writable` flag (whether the caller may write to it); resource items also carry `mime-type`. A flat (non-recursive) listing also carries `total` (full child count), `start` (1-based offset of this page) and `count` (items in this page).",
+            "description": "Collection metadata with children array. Each item carries `writable` (whether the caller may write to it) and `accessible` (whether the caller may read/open it) flags, both evaluated authoritatively by the server so clients needn't re-derive them from the mode bits; resource items also carry `mime-type`. A child whose metadata can't be read at all (e.g. a collection whose permissions the caller isn't allowed to retrieve) does not fail the listing — it appears as a degraded entry carrying just `type`, `name`, `path`, `accessible: false`, and an `error`. A flat (non-recursive) listing also carries `total` (full child count), `start` (1-based offset of this page) and `count` (items in this page).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1377,6 +1377,14 @@
                       "items": {
                         "type": "object"
                       }
+                    },
+                    "writable": {
+                      "type": "boolean",
+                      "description": "Whether the caller may write to this item (sm:has-access, authoritative)"
+                    },
+                    "accessible": {
+                      "type": "boolean",
+                      "description": "Whether the caller may read/open this item (sm:has-access, authoritative). A degraded child entry whose metadata couldn't be read carries accessible: false."
                     },
                     "size": {
                       "type": "integer"

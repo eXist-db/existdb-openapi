@@ -61,6 +61,36 @@ describe('/api/db', () => {
         expect(collections.length).to.be.greaterThan(0);
       });
     });
+
+    it('carries an accessible flag on listed children', () => {
+      cy.request({ url: '/api/db?path=/db', auth }).then(response => {
+        expect(response.status).to.eq(200);
+        response.body.children.forEach(c => {
+          expect(c).to.have.property('accessible');
+          expect(c.accessible).to.be.a('boolean');
+        });
+      });
+    });
+
+    // Regression: one child whose permissions the caller can't read must not 500
+    // the whole collection. As guest, /db/system has world-readable config/repo
+    // (rwxr-xr-x) plus security (rwxrwx---, guest outside owner/group) which guest
+    // can't even retrieve permissions for. The listing must still return 200 with
+    // the readable children, and security as a degraded entry flagged inaccessible.
+    it('tolerates an unreadable child instead of 500ing the collection (guest)', () => {
+      const guest = { username: 'guest', password: 'guest' };
+      cy.request({ url: '/api/db?path=/db/system', auth: guest, failOnStatusCode: false })
+        .then(response => {
+          expect(response.status).to.eq(200);
+          const byName = Object.fromEntries(response.body.children.map(c => [c.name, c]));
+          // the locked child still appears, flagged inaccessible
+          expect(byName).to.have.property('security');
+          expect(byName.security.accessible).to.eq(false);
+          // the world-readable siblings are listed and accessible
+          expect(byName).to.have.property('config');
+          expect(byName.config.accessible).to.eq(true);
+        });
+    });
   });
 
   describe('POST /api/db/collection — create', () => {
