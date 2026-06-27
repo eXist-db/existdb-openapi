@@ -178,10 +178,15 @@ declare %private function dbc:get-collection-info($path as xs:string) as map(*) 
         "type": "collection",
         "name": dbc:to-display($name),
         "path": dbc:to-display($path),
-        (: writable: can THIS caller write here? — a file-browser affordance,
-         : evaluated authoritatively (mode + ACL + dba) by sm:has-access rather
-         : than left for the client to derive from the mode bits. :)
+        (: writable/accessible: can THIS caller write to / read (open and list)
+         : this item? — file-browser affordances, evaluated authoritatively
+         : (mode + ACL + dba) by sm:has-access rather than left for the client to
+         : derive from the mode bits. `accessible` lets a client render a locked
+         : item (lock overlay, non-expandable) without replicating eXist's
+         : permission evaluation; see db-core:inaccessible-entry for the entry
+         : returned when a child can't even be read enough to build this. :)
         "writable": sm:has-access(xs:anyURI($path), "w"),
+        "accessible": sm:has-access(xs:anyURI($path), "r"),
         "mode": $perms?mode,
         "owner": $perms?owner,
         "group": $perms?group,
@@ -202,8 +207,9 @@ declare %private function dbc:get-resource-info($collection as xs:string, $resou
         "type": "resource",
         "name": dbc:to-display($resource),
         "path": dbc:to-display($path),
-        (: see db-core:get-collection-info for the writable rationale :)
+        (: see db-core:get-collection-info for the writable/accessible rationale :)
         "writable": sm:has-access(xs:anyURI($path), "w"),
+        "accessible": sm:has-access(xs:anyURI($path), "r"),
         "mime-type": xmldb:get-mime-type(xs:anyURI($path)),
         "mode": $perms?mode,
         "owner": $perms?owner,
@@ -213,6 +219,47 @@ declare %private function dbc:get-resource-info($collection as xs:string, $resou
         "modified": string(xmldb:last-modified($collection, $resource)),
         "created": string(xmldb:created($collection, $resource))
     }
+};
+
+(:~
+ : Degraded listing entry for a child whose metadata can't be retrieved — e.g. a
+ : collection whose permissions the caller isn't allowed to read (mode rwxrwx---
+ : with the caller outside owner/group). sm:get-permissions throws in that case,
+ : which would otherwise 500 the whole listing. Returns just the name/type/path
+ : (all known without reading the child's permissions) plus accessible=false, so
+ : the item still appears — flagged — instead of poisoning the collection. The
+ : raw error is kept for debugging.
+ :)
+declare %private function dbc:inaccessible-entry(
+    $type as xs:string, $path as xs:string, $error as xs:string?
+) as map(*) {
+    map {
+        "type": $type,
+        "name": dbc:to-display(replace($path, "^.*/", "")),
+        "path": dbc:to-display($path),
+        "accessible": false(),
+        "error": $error
+    }
+};
+
+(:~
+ : Build a child collection's listing entry, tolerating an unreadable child:
+ : on any failure (typically a permission-denied on sm:get-permissions) return a
+ : degraded entry rather than letting it fail the enclosing listing.
+ :)
+declare %private function dbc:safe-collection-info($path as xs:string) as map(*) {
+    try { dbc:get-collection-info($path) }
+    catch * { dbc:inaccessible-entry("collection", $path, $err:description) }
+};
+
+(:~
+ : Build a child resource's listing entry, tolerating an unreadable child.
+ :)
+declare %private function dbc:safe-resource-info(
+    $collection as xs:string, $resource as xs:string
+) as map(*) {
+    try { dbc:get-resource-info($collection, $resource) }
+    catch * { dbc:inaccessible-entry("resource", $collection || "/" || $resource, $err:description) }
 };
 
 (:~
@@ -238,8 +285,13 @@ declare %private function dbc:list-recursive(
         order by $child
         return
             if ($max-depth eq 0 or $depth lt $max-depth)
-            then dbc:list-recursive($child-path, $depth + 1, $max-depth, $glob-regex, $collections-only)
-            else dbc:get-collection-info($child-path)
+            (: tolerate an unreadable child: a degraded entry, not a failed tree :)
+            then try {
+                dbc:list-recursive($child-path, $depth + 1, $max-depth, $glob-regex, $collections-only)
+            } catch * {
+                dbc:inaccessible-entry("collection", $child-path, $err:description)
+            }
+            else dbc:safe-collection-info($child-path)
     let $resources :=
         if ($collections-only)
         then ()
@@ -247,7 +299,7 @@ declare %private function dbc:list-recursive(
             for $resource in xmldb:get-child-resources($path)
             where $glob-regex eq "" or matches($resource, $glob-regex)
             order by $resource
-            return dbc:get-resource-info($path, $resource)
+            return dbc:safe-resource-info($path, $resource)
     return map:merge((
         $info,
         map {
@@ -287,7 +339,7 @@ declare function dbc:list($wire-path as xs:string, $opts as map(*)) as map(*) {
             let $child-collections :=
                 for $child in xmldb:get-child-collections($path)
                 order by $child
-                return dbc:get-collection-info($path || "/" || $child)
+                return dbc:safe-collection-info($path || "/" || $child)
             let $resources :=
                 if ($collections-only)
                 then ()
@@ -295,7 +347,7 @@ declare function dbc:list($wire-path as xs:string, $opts as map(*)) as map(*) {
                     for $resource in xmldb:get-child-resources($path)
                     where $glob-regex eq "" or matches($resource, $glob-regex)
                     order by $resource
-                    return dbc:get-resource-info($path, $resource)
+                    return dbc:safe-resource-info($path, $resource)
             (: Pagination over the full ordered child sequence (collections then
              : resources). start is 1-based; count defaults to "all" when absent. :)
             let $all-children := ($child-collections, $resources)
