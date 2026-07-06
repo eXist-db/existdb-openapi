@@ -24,38 +24,16 @@ describe('/api/packages', () => {
   // used a bare doc() on that path, which threw FODC0005 and failed the WHOLE
   // listing with HTTP 500. The listing must now tolerate one bad package.
   describe('GET /api/packages — resilient to a malformed installed package', () => {
-    // Install a package whose @version is the literal, unsubstituted
-    // "${app.version}" so its repo directory name contains illegal characters.
-    // Built and installed via /api/query because a raw .xar can't be uploaded
-    // through the API on plain develop. Single-quoted lines keep ${...}/{$ver}
-    // literal (no JS template interpolation).
-    const setupQuery = [
-      'let $ver := "${app.version}"',
-      'let $pkg :=',
-      '    <package xmlns="http://expath.org/ns/pkg" name="http://example.com/badver" abbrev="badver" version="{$ver}" spec="1.0">',
-      '        <title>Bad Version Package</title>',
-      '    </package>',
-      'let $repo :=',
-      '    <meta xmlns="http://exist-db.org/xquery/repo">',
-      '        <description>Bad version repro</description>',
-      '        <type>library</type>',
-      '        <status>stable</status>',
-      '    </meta>',
-      'let $entries := (',
-      '    <entry name="expath-pkg.xml" type="xml">{$pkg}</entry>,',
-      '    <entry name="repo.xml" type="xml">{$repo}</entry>',
-      ')',
-      'let $zip := compression:zip($entries, true())',
-      'let $stored := xmldb:store("/db/system/repo", "badver-setup.xar", $zip, "application/zip")',
-      'return repo:install-and-deploy-from-db($stored, "https://exist-db.org/exist/apps/public-repo/find")/@target/string()'
-    ].join('\n');
-
     before(() => {
-      cy.request({
-        url: '/api/query', method: 'POST', auth,
-        body: { query: setupQuery }, timeout: 30000
-      }).then(response => {
-        expect(response.status).to.eq(200);
+      // Install a package whose @version is the literal, unsubstituted
+      // "${app.version}" so its repo directory name contains illegal characters.
+      // Built and installed via /api/query (see install-malformed-package.xq)
+      // because a raw .xar can't be uploaded through the API on plain develop.
+      cy.fixture('install-malformed-package.xq', 'utf8').then((query) => {
+        cy.request({
+          url: '/api/query', method: 'POST', auth,
+          body: { query }, timeout: 30000
+        }).its('status').should('eq', 200);
       });
     });
 
