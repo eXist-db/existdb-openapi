@@ -413,7 +413,7 @@
                   "variables": {
                     "type": "object",
                     "additionalProperties": true,
-                    "description": "External-variable bindings: each property name is a variable's local name (no namespace) and its value is bound to the matching `declare variable $name external;` in the expression. Each value maps to the XDM exactly as the request JSON does (the same mapping as eXist's `parse-json`): string → xs:string, number → xs:double, boolean → xs:boolean, array → array(*), object → map(*). A query handles a multi-valued (array) parameter explicitly — e.g. `$x?*` or `array:flatten($x)` for its members. An external variable's declared type is matched strictly, so a typed declaration such as `as xs:integer` must receive a matching value — cast in-query (e.g. `xs:integer($n)`) or leave the variable untyped. Names with no matching external declaration are ignored.",
+                    "description": "External-variable bindings: each property name is a variable's local name (no namespace), bound to the matching `declare variable $name external;` in the expression. JSON values map to XDM by kind — string→xs:string, number→xs:double, boolean→xs:boolean, array→array(*), object→map(*) — so an array value is read with array accessors (e.g. `$x?*`, or `array:flatten($x)` for its members). A typed external declaration (e.g. `as xs:integer`) is matched strictly: pass a conforming value or cast in-query (`xs:integer($n)`). A name with no matching external declaration is ignored, as eXist's own XML-RPC and REST query interfaces do.",
                     "example": {
                       "project-id": "frus1981-88v36",
                       "div-ids": ["d278", "d300"]

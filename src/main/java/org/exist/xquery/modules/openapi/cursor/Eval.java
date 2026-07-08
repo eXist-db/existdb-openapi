@@ -99,13 +99,11 @@ public class Eval extends BasicFunction {
                                     context item."""),
                             optParam("variables", Type.MAP_ITEM, """
                                     External-variable bindings. Each entry's key is a \
-                                    variable's local name (no namespace) and its value is \
+                                    variable's local name (no namespace); its value is \
                                     bound to the matching `declare variable $name external;` \
-                                    in the expression. Values map to the XDM as eXist's \
-                                    parse-json does (string→xs:string, number→xs:double, \
-                                    boolean→xs:boolean, array→array(*), object→map(*)); the \
-                                    variable's declared type is enforced strictly. Keys with \
-                                    no matching external declaration are ignored.""")
+                                    in the expression, with the declared type enforced \
+                                    strictly. Keys with no matching external declaration \
+                                    are ignored.""")
                     )
             )
     );
@@ -291,13 +289,9 @@ public class Eval extends BasicFunction {
             final Item key = keys.nextItem();
             final String name = key.getStringValue();
             try {
-                // Bind the value exactly as the request JSON maps to the XDM — the same mapping
-                // eXist's parse-json/json-doc use: string→xs:string, number→xs:double,
-                // boolean→xs:boolean, array→array(*), object→map(*). The query handles a
-                // multi-valued (array) parameter explicitly, e.g. $x?* or array:flatten($x) for its
-                // members. eXist matches an external variable's declared type strictly, so a typed
-                // declaration such as `as xs:integer` must receive a matching value — cast in-query
-                // or leave the variable untyped.
+                // Values are already XDM (the caller built the map); declareVariable binds
+                // each to a matching `external` var, enforces its declared type, and leaves
+                // an unmatched name unused — the same as eXist's XML-RPC/REST query paths.
                 ctx.declareVariable(new QName(name), variables.get((AtomicValue) key));
             } catch (final QName.IllegalQNameException e) {
                 throw new XPathException(this, "Invalid external-variable name: '" + name + "'");
