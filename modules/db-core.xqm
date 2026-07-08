@@ -528,6 +528,23 @@ declare %private function dbc:fix-permissions($path as xs:string) {
 };
 
 (:~
+ : Does the target mime (explicit, else inferred from the resource name)
+ : route content through eXist's XML parser? A raw request body arrives as
+ : bytes (the endpoint's octet-stream transport), and xmldb:store cannot
+ : XML-parse a binary value — it errors, or on some builds blocks holding a
+ : broker — so an XML-class target must have its bytes decoded to a string
+ : first, letting the parser see the actual markup. Non-XML targets
+ : (application/json, application/xquery, images, octet-stream, …) store the
+ : bytes as-is, so they are left untouched.
+ :)
+declare %private function dbc:xml-parsed-target($mime as xs:string?, $resource as xs:string) as xs:boolean {
+    if (exists($mime))
+    then $mime = ("application/xml", "text/xml", "text/html", "application/xhtml+xml")
+        or ends-with($mime, "+xml")
+    else matches($resource, "\.(xml|xhtml|html|htm|svg|xsl|xslt|xconf|rng|xsd|wsdl|sch|nvdl|odd|rss|atom|xspec|xpl|xproc)$", "i")
+};
+
+(:~
  : Store a resource.
  : @param $wire-path target path (wire/decoded form)
  : @param $content resource content
@@ -555,14 +572,21 @@ declare function dbc:store($wire-path as xs:string?, $content as item()?, $mime 
             let $collection := replace($path, "/[^/]+$", "")
             let $resource := replace($path, "^.*/", "")
             let $is-new := not(doc-available($path)) and not(util:binary-doc-available($path))
+            (: A raw body arrives as bytes; decode to text when the target is an
+             : XML-class type so the parser sees markup rather than a binary value. :)
+            let $body :=
+                if (dbc:xml-parsed-target($mime, $resource)
+                    and ($content instance of xs:base64Binary or $content instance of xs:hexBinary))
+                then util:binary-to-string($content)
+                else $content
             return
                 try {
                     let $stored :=
                         if (util:binary-doc-available($path))
                         then xmldb:store-as-binary($collection, $resource, $content)
                         else if (exists($mime))
-                        then xmldb:store($collection, $resource, $content, $mime)
-                        else xmldb:store($collection, $resource, $content)
+                        then xmldb:store($collection, $resource, $body, $mime)
+                        else xmldb:store($collection, $resource, $body)
                     let $_ := if ($is-new) then dbc:fix-permissions($stored) else ()
                     return map {
                         "stored": dbc:to-display($stored),
