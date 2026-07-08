@@ -430,24 +430,18 @@ declare function dbc:get-resource($wire-path as xs:string?, $opts as map(*)) as 
             }
 };
 
-(:~ eXist serializer extensions, emitted in the exist: namespace
- : (http://exist.sourceforge.net/NS/exist) rather than the W3C output: namespace.
- : eXist's serializer recognizes these natively as exist:-namespaced children of
- : output:serialization-parameters via fn:serialize, so expand-xincludes et al.
- : work on any eXist — no dependency on eXist-db/exist#6447.
- :
- : These names are the canonical local-names (used as the exist:-namespace element
- : name). On the WIRE they are namespaced with an "exist." prefix
- : (e.g. ?exist.expand-xincludes=no), so the query string mirrors the W3C-vs-eXist
- : serialization split — the standard W3C params (indent, omit-xml-declaration, …)
- : stay unprefixed, the implementation-defined eXist ones carry "exist.". A dot is
- : used (not a colon) so the names are clean for OpenAPI tooling / SDK codegen. :)
+(:~ eXist serializer extensions (canonical local-names). They are emitted as
+ : exist:-namespaced children of output:serialization-parameters
+ : (http://exist.sourceforge.net/NS/exist), which eXist's serializer recognizes
+ : natively via fn:serialize, so they work on any eXist. On the wire they carry an
+ : "exist:" prefix (e.g. ?exist:expand-xincludes=no), mirroring the serialization
+ : split: standard W3C params stay unprefixed, the eXist extensions carry "exist:". :)
 declare variable $dbc:serialization-exist-params as xs:string+ := (
     "expand-xincludes", "highlight-matches", "add-exist-id", "process-xsl-pi", "jsonp", "insert-final-newline"
 );
 
-(:~ The "exist." wire prefix on the eXist serializer extensions (see above). :)
-declare variable $dbc:serialization-exist-prefix as xs:string := "exist.";
+(:~ The "exist:" wire prefix on the eXist serializer extensions (see above). :)
+declare variable $dbc:serialization-exist-prefix as xs:string := "exist:";
 
 (:~
  : The serialization parameters this API accepts. The standard W3C vocabulary
