@@ -91,42 +91,61 @@ declare function db:get-resource($request as map(*)) {
         return
             if (empty($wire) or $wire = "")
             then roaster:response(400, map { "error": "Missing required parameter: path" })
-            else
-                (: resolve-stored (not to-stored) so the existence check + binary
-                   streaming below honor legacy full-encoded names, consistent with
-                   dbc:get-resource / dbc:properties (read-compat for old clients). :)
-                let $stored := dbc:resolve-stored($wire)
-                return
-                    if (not(doc-available($stored)) and not(util:binary-doc-available($stored)))
-                    then roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
-                    else
-                        let $mime := xmldb:get-mime-type(xs:anyURI($stored))
-                        (: download=true → Content-Disposition: attachment (a save, not the
-                           "inline" that stream-binary's filename arg would set). Bound and
-                           forced via [last()] so it is set before the body is streamed. :)
-                        let $disp :=
-                            if ($request?parameters?download = ("true", "yes", "1"))
-                            then response:set-header("Content-Disposition",
-                                'attachment; filename="' || replace(dbc:to-display($stored), "^.*/", "") || '"')
-                            else ()
-                        return
-                            if (util:binary-doc-available($stored))
-                            then ($disp, util:binary-doc($stored) => response:stream-binary($mime, ()))[last()]
-                            else
-                                (: XML/text: serialized from the node tree with the requested
-                                   params. A serialization failure (e.g. an invalid param value)
-                                   surfaces as a clean 400, not an opaque 500. :)
-                                let $content :=
-                                    try { dbc:get-resource($wire, $request?parameters)?content }
-                                    catch * { map { "ser-error": $err:description } }
-                                return
-                                    if ($content instance of map(*))
-                                    then roaster:response(400,
-                                        map { "error": "Serialization failed (an unsupported parameter for this eXist?): " || $content?("ser-error") })
-                                    else ($disp, util:string-to-binary($content) => response:stream-binary($mime, ()))[last()]
+            else db:resolve-and-stream($wire, $request)
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
+};
+
+(:~
+ : Resolve the wire path to its stored form and 404 if it exists as neither an
+ : XML/text nor a binary resource. resolve-stored (not to-stored) so the check
+ : and streaming honor legacy full-encoded names, consistent with
+ : dbc:get-resource / dbc:properties (read-compat for old clients).
+ :)
+declare %private function db:resolve-and-stream($wire as xs:string, $request as map(*)) {
+    let $stored := dbc:resolve-stored($wire)
+    return
+        if (not(doc-available($stored)) and not(util:binary-doc-available($stored)))
+        then roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
+        else db:stream-content($wire, $stored, $request)
+};
+
+(:~
+ : Stream the resource body: a binary is streamed as-is, an XML/text resource is
+ : serialized from its node tree (see db:stream-serialized). download=true sets
+ : Content-Disposition: attachment (a save, not the "inline" that stream-binary's
+ : filename arg would set); it is bound and forced via [last()] so the header is
+ : set before the body streams.
+ :)
+declare %private function db:stream-content($wire as xs:string, $stored as xs:string, $request as map(*)) {
+    let $mime := xmldb:get-mime-type(xs:anyURI($stored))
+    let $disp :=
+        if ($request?parameters?download = ("true", "yes", "1"))
+        then response:set-header("Content-Disposition",
+            'attachment; filename="' || replace(dbc:to-display($stored), "^.*/", "") || '"')
+        else ()
+    return
+        if (util:binary-doc-available($stored))
+        then ($disp, util:binary-doc($stored) => response:stream-binary($mime, ()))[last()]
+        else db:stream-serialized($wire, $stored, $mime, $disp, $request)
+};
+
+(:~
+ : Serialize an XML/text resource from its node tree with the requested params and
+ : stream it. A serialization failure (e.g. an invalid param value) surfaces as a
+ : clean 400, not an opaque 500.
+ :)
+declare %private function db:stream-serialized($wire as xs:string, $stored as xs:string,
+        $mime as xs:string?, $disp as item()*, $request as map(*)) {
+    let $content :=
+        try { dbc:get-resource($wire, $request?parameters)?content }
+        catch * { map { "ser-error": $err:description } }
+    return
+        if ($content instance of map(*))
+        then roaster:response(400,
+            map { "error": "Serialization failed (an unsupported parameter for this eXist?): " || $content?("ser-error") })
+        else ($disp, util:string-to-binary($content) => response:stream-binary($mime, ()))[last()]
 };
 
 (:~
