@@ -326,12 +326,10 @@ describe('/api/query', () => {
 
     before(() => {
       cy.request({
-        url: '/api/db/resource', method: 'PUT', auth,
-        body: {
-          path: testDoc,
-          content: '<doc><para>one</para><para>two</para></doc>',
-          'mime-type': 'application/xml'
-        }
+        url: `/api/db/resource?path=${encodeURIComponent(testDoc)}&mime=application/xml`,
+        method: 'PUT', auth,
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: '<doc><para>one</para><para>two</para></doc>'
       });
     });
 
@@ -392,14 +390,10 @@ describe('/api/query', () => {
 
     before(() => {
       cy.request({
-        url: `/api/db/resource`,
-        method: 'PUT',
-        auth,
-        body: {
-          path: testDoc,
-          content: '<doc><para>one</para><para>two</para><para>three</para></doc>',
-          'mime-type': 'application/xml'
-        }
+        url: `/api/db/resource?path=${encodeURIComponent(testDoc)}&mime=application/xml`,
+        method: 'PUT', auth,
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: '<doc><para>one</para><para>two</para><para>three</para></doc>'
       });
     });
 

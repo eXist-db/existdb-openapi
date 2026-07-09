@@ -22,6 +22,7 @@ import module namespace roaster="http://e-editiones.org/roaster";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
 declare namespace dberr="http://exist-db.org/api/db-core/error";
+declare namespace response="http://exist-db.org/xquery/response";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
@@ -44,7 +45,12 @@ declare %private function db:error-response(
             "server-error": 500
         }(local-name-from-QName($code)), 500)[1]
     let $extra := if ($value instance of map(*)) then $value else map {}
-    return roaster:response($status, map:merge((map { "error": $description }, $extra)))
+    (: Pin the response media-type to application/json. Otherwise an error mapped to
+       a status the route doesn't declare in api.json falls back to roaster's
+       application/xml default, and the error map fails with SENR0001 ("cannot
+       serialize a map with the XML output method"). See eeditiones/roaster#127. :)
+    return roaster:response($status, "application/json",
+        map:merge((map { "error": $description }, $extra)), ())
 };
 
 (:~
@@ -70,32 +76,104 @@ declare function db:list($request as map(*)) {
 };
 
 (:~
- : Get resource content.
- : GET /api/db/resource?path=/db/apps/myapp/index.xq
+ : Get a resource's content.
+ : GET /api/db/resource?path=/db/apps/myapp/index.xq[&method&indent&…&download=true]
+ :
+ : Returns the raw content: a binary resource is streamed as-is; an XML/text
+ : resource has no stored byte form, so it is serialized from its node tree honoring
+ : the serialization parameters (db-core builds them). The body IS the content —
+ : metadata is a separate concern (GET /api/db/properties). download=true sets
+ : Content-Disposition: attachment so the browser saves rather than renders.
  :)
 declare function db:get-resource($request as map(*)) {
     try {
-        (: pass the request parameters straight through as options — db-core reads
-         : meta plus the W3C serialization keys (method/indent/omit-xml-declaration/
-         : encoding/media-type/item-separator) and ignores the rest. :)
-        dbc:get-resource($request?parameters?path, $request?parameters)
+        let $wire := $request?parameters?path
+        return
+            if (empty($wire) or $wire = "")
+            then roaster:response(400, map { "error": "Missing required parameter: path" })
+            else db:resolve-and-stream($wire, $request)
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
 };
 
 (:~
- : Store resource.
- : PUT /api/db/resource
+ : Resolve the wire path to its stored form and 404 if it exists as neither an
+ : XML/text nor a binary resource. resolve-stored (not to-stored) so the check
+ : and streaming honor legacy full-encoded names, consistent with
+ : dbc:get-resource / dbc:properties (read-compat for old clients).
+ :)
+declare %private function db:resolve-and-stream($wire as xs:string, $request as map(*)) {
+    let $stored := dbc:resolve-stored($wire)
+    return
+        if (not(doc-available($stored)) and not(util:binary-doc-available($stored)))
+        then roaster:response(404, map { "error": "Resource not found: " || dbc:to-display($stored) })
+        else db:stream-content($wire, $stored, $request)
+};
+
+(:~
+ : Stream the resource body: a binary is streamed as-is, an XML/text resource is
+ : serialized from its node tree (see db:stream-serialized). download=true sets
+ : Content-Disposition: attachment (a save, not the "inline" that stream-binary's
+ : filename arg would set); it is bound and forced via [last()] so the header is
+ : set before the body streams.
+ :)
+declare %private function db:stream-content($wire as xs:string, $stored as xs:string, $request as map(*)) {
+    let $mime := xmldb:get-mime-type(xs:anyURI($stored))
+    let $disp :=
+        if ($request?parameters?download = ("true", "yes", "1"))
+        then response:set-header("Content-Disposition",
+            'attachment; filename="' || replace(dbc:to-display($stored), "^.*/", "") || '"')
+        else ()
+    return
+        if (util:binary-doc-available($stored))
+        then ($disp, util:binary-doc($stored) => response:stream-binary($mime, ()))[last()]
+        else db:stream-serialized($wire, $stored, $mime, $disp, $request)
+};
+
+(:~
+ : Serialize an XML/text resource from its node tree with the requested params and
+ : stream it. A serialization failure (e.g. an invalid param value) surfaces as a
+ : clean 400, not an opaque 500.
+ :)
+declare %private function db:stream-serialized($wire as xs:string, $stored as xs:string,
+        $mime as xs:string?, $disp as item()*, $request as map(*)) {
+    let $content :=
+        try { dbc:get-resource($wire, $request?parameters)?content }
+        catch * { map { "ser-error": $err:description } }
+    return
+        if ($content instance of map(*))
+        then roaster:response(400,
+            map { "error": "Serialization failed (an unsupported parameter for this eXist?): " || $content?("ser-error") })
+        else ($disp, util:string-to-binary($content) => response:stream-binary($mime, ()))[last()]
+};
+
+(:~
+ : Store a resource from a raw request body (binary-safe).
+ : PUT /api/db/resource?path=/db/apps/myapp/data.bin[&mime=…]
+ :
+ : The path is a query param; the request body is the raw content (roaster hands a
+ : non-json/xml body through unparsed). The stored mime comes from the optional
+ : &mime query param when present, otherwise db-core infers it from the resource
+ : name. The request's own Content-Type is transport only and not used as the
+ : stored mime (HTTP clients send unpredictable defaults; an explicit &mime keeps
+ : it deterministic and still lets a caller force a type, e.g. application/octet-
+ : stream to store unparseable content as raw bytes). Returns { path } — 201
+ : created / 200 overwritten — so the caller can reconcile name normalization.
  :)
 declare function db:store-resource($request as map(*)) {
     try {
-        let $body := $request?body
-        let $result := dbc:store($body?path, $body?content, $body?mime-type)
-        return roaster:response(
-            if ($result?created) then 201 else 200,
-            map:remove($result, "created")
-        )
+        let $path := $request?parameters?path
+        return
+            if (empty($path) or $path = "")
+            then roaster:response(400, map { "error": "Missing required parameter: path" })
+            else
+                let $mime := $request?parameters?mime[. ne ""]
+                let $result := dbc:store($path, $request?body, $mime)
+                return roaster:response(
+                    if ($result?created) then 201 else 200,
+                    map { "path": $result?stored }
+                )
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }
@@ -119,7 +197,7 @@ declare function db:remove-resource($request as map(*)) {
  :)
 declare function db:create-collection($request as map(*)) {
     try {
-        roaster:response(201, dbc:create-collection($request?body?path))
+        roaster:response(201, dbc:create-collection($request?body?path, $request?body?recursive = true()))
     } catch * {
         db:error-response($err:code, $err:description, $err:value)
     }

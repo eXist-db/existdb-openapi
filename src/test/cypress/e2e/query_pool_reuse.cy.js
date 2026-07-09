@@ -27,20 +27,16 @@ describe('/api/query — XQueryPool reuse', () => {
       });
     });
     cy.request({
-      url: '/api/db/resource', method: 'PUT', auth,
-      body: {
-        path: `${collA}/x.xml`,
-        content: '<doc><p>a1</p><p>a2</p><p>a3</p></doc>',
-        'mime-type': 'application/xml'
-      }
+      url: `/api/db/resource?path=${encodeURIComponent(`${collA}/x.xml`)}&mime=application/xml`,
+      method: 'PUT', auth,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: '<doc><p>a1</p><p>a2</p><p>a3</p></doc>'
     });
     cy.request({
-      url: '/api/db/resource', method: 'PUT', auth,
-      body: {
-        path: `${collB}/x.xml`,
-        content: '<doc><p>b1</p></doc>',
-        'mime-type': 'application/xml'
-      }
+      url: `/api/db/resource?path=${encodeURIComponent(`${collB}/x.xml`)}&mime=application/xml`,
+      method: 'PUT', auth,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: '<doc><p>b1</p></doc>'
     });
   });
 

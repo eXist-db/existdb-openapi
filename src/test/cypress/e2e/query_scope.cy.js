@@ -32,24 +32,16 @@ describe('/api/query — context scope', () => {
       body: { path: testCollection }
     });
     cy.request({
-      url: '/api/db/resource',
-      method: 'PUT',
-      auth,
-      body: {
-        path: `${testCollection}/a.xml`,
-        content: '<doc><p>one</p><p>two</p></doc>',
-        'mime-type': 'application/xml'
-      }
+      url: `/api/db/resource?path=${encodeURIComponent(`${testCollection}/a.xml`)}&mime=application/xml`,
+      method: 'PUT', auth,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: '<doc><p>one</p><p>two</p></doc>'
     });
     cy.request({
-      url: '/api/db/resource',
-      method: 'PUT',
-      auth,
-      body: {
-        path: `${testCollection}/b.xml`,
-        content: '<doc><p>three</p><p>four</p></doc>',
-        'mime-type': 'application/xml'
-      }
+      url: `/api/db/resource?path=${encodeURIComponent(`${testCollection}/b.xml`)}&mime=application/xml`,
+      method: 'PUT', auth,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: '<doc><p>three</p><p>four</p></doc>'
     });
     cy.request({
       url: '/api/db/collection',
@@ -58,14 +50,10 @@ describe('/api/query — context scope', () => {
       body: { path: `${testCollection}/sub` }
     });
     cy.request({
-      url: '/api/db/resource',
-      method: 'PUT',
-      auth,
-      body: {
-        path: `${testCollection}/sub/c.xml`,
-        content: '<doc><p>five</p></doc>',
-        'mime-type': 'application/xml'
-      }
+      url: `/api/db/resource?path=${encodeURIComponent(`${testCollection}/sub/c.xml`)}&mime=application/xml`,
+      method: 'PUT', auth,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: '<doc><p>five</p></doc>'
     });
   });
 

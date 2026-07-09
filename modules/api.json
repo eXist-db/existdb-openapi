@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.13.0",
+    "version": "0.14.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",
@@ -1494,9 +1494,9 @@
     },
     "/api/db/resource": {
       "get": {
-        "summary": "Get resource content",
+        "summary": "Get a resource's content",
         "operationId": "db:get-resource",
-        "description": "Retrieves the content of a database resource (XML document, XQuery module, binary file, etc.) along with its MIME type and binary flag.",
+        "description": "Returns a resource's content. Binary resources stream as raw bytes; XML/text resources are serialized from the stored node tree honoring the serialization parameters below (eXist keeps XML as a node tree, not a byte stream, so every read is a serialization). The body IS the content; `Content-Type` carries the mime. Metadata is a separate concern — use GET /api/db/properties. XQuery resources return their source, not execution output.",
         "tags": [
           "Database"
         ],
@@ -1505,164 +1505,87 @@
             "name": "path",
             "in": "query",
             "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Full DB path of the resource"
-          },
-          {
-            "name": "meta",
-            "in": "query",
-            "description": "Set to 'full' to flatten the resource's metadata (owner, group, mode, acl, size, created, last-modified) into the response alongside the content, sparing a separate /api/db/properties call",
-            "schema": {
-              "type": "string",
-              "enum": ["full"]
-            }
-          },
-          {
-            "name": "method",
-            "in": "query",
-            "schema": { "type": "string", "enum": ["xml", "xhtml", "html5", "text", "json", "adaptive"] },
-            "description": "Serialization method for XML resources. Omit to use the instance (conf.xml) default. Ignored for binary resources."
-          },
-          {
-            "name": "indent",
-            "in": "query",
-            "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] },
-            "description": "Pretty-print the XML output. Omit to use the conf.xml default."
-          },
-          {
-            "name": "omit-xml-declaration",
-            "in": "query",
-            "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] },
-            "description": "Omit the <?xml ...?> declaration. Omit to use the conf.xml default."
-          },
-          {
-            "name": "encoding",
-            "in": "query",
             "schema": { "type": "string" },
-            "description": "Output character encoding (e.g. UTF-8). Omit to use the conf.xml default."
+            "description": "Full DB path of the resource (decoded UTF-8, e.g. /db/apps/myapp/café.xml)"
           },
           {
-            "name": "media-type",
+            "name": "download",
             "in": "query",
-            "schema": { "type": "string" },
-            "description": "Serialization media-type. Omit to use the conf.xml default."
+            "schema": { "type": "string", "enum": ["true", "false", "yes", "no"] },
+            "description": "When true, sets Content-Disposition: attachment so the browser saves rather than renders the resource."
           },
-          {
-            "name": "item-separator",
-            "in": "query",
-            "schema": { "type": "string" },
-            "description": "Separator string between serialized items. Omit to use the conf.xml default."
-          }
+          { "name": "method", "in": "query", "schema": { "type": "string", "enum": ["xml", "xhtml", "html5", "text", "json", "adaptive", "microxml"] }, "description": "W3C serialization method (XML/text resources). Omit to use the conf.xml default; ignored for binary." },
+          { "name": "indent", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: pretty-print the output." },
+          { "name": "omit-xml-declaration", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: omit the <?xml ...?> declaration." },
+          { "name": "encoding", "in": "query", "schema": { "type": "string" }, "description": "W3C: output character encoding (e.g. UTF-8)." },
+          { "name": "media-type", "in": "query", "schema": { "type": "string" }, "description": "W3C: serialization media-type." },
+          { "name": "item-separator", "in": "query", "schema": { "type": "string" }, "description": "W3C: separator between serialized items." },
+          { "name": "standalone", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "omit"] }, "description": "W3C: standalone declaration." },
+          { "name": "doctype-public", "in": "query", "schema": { "type": "string" }, "description": "W3C: PUBLIC identifier for the DOCTYPE." },
+          { "name": "doctype-system", "in": "query", "schema": { "type": "string" }, "description": "W3C: SYSTEM identifier for the DOCTYPE." },
+          { "name": "cdata-section-elements", "in": "query", "schema": { "type": "string" }, "description": "W3C: space-separated element QNames serialized as CDATA sections." },
+          { "name": "normalization-form", "in": "query", "schema": { "type": "string" }, "description": "W3C: Unicode normalization form (NFC/NFD/NFKC/NFKD/none)." },
+          { "name": "html-version", "in": "query", "schema": { "type": "string" }, "description": "W3C: HTML version (with method=html5/xhtml)." },
+          { "name": "json-node-output-method", "in": "query", "schema": { "type": "string" }, "description": "W3C: serialization method for nodes nested in JSON output." },
+          { "name": "suppress-indentation", "in": "query", "schema": { "type": "string" }, "description": "W3C: space-separated element QNames whose content is not indented." },
+          { "name": "undeclare-prefixes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: undeclare namespace prefixes that go out of scope." },
+          { "name": "escape-uri-attributes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: escape URI-valued HTML attributes." },
+          { "name": "byte-order-mark", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C: emit a byte-order mark." },
+          { "name": "allow-duplicate-names", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "W3C (JSON): allow duplicate keys." },
+          { "name": "exist:expand-xincludes", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension (implementation-defined, hence the exist: prefix): expand <xi:include> elements. Defaults to the conf.xml setting; set 'no' to preserve includes verbatim (e.g. for round-tripping)." },
+          { "name": "exist:highlight-matches", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: mark full-text/index matches (none|attributes|elements|both)." },
+          { "name": "exist:add-exist-id", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: add exist:id attributes (none|element|all)." },
+          { "name": "exist:process-xsl-pi", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: act on xml-stylesheet processing instructions." },
+          { "name": "exist:jsonp", "in": "query", "schema": { "type": "string" }, "description": "eXist serializer extension: wrap JSON output in the named JSONP callback." },
+          { "name": "exist:insert-final-newline", "in": "query", "schema": { "type": "string", "enum": ["yes", "no", "true", "false"] }, "description": "eXist serializer extension: append a trailing newline." }
         ],
         "responses": {
           "200": {
-            "description": "Resource content (always includes runPath). With meta=full, the resource's metadata fields are flattened in alongside the content. XML resources are serialized using any serialization parameters supplied (method/indent/omit-xml-declaration/encoding/media-type/item-separator); omitted parameters fall through to the conf.xml serializer defaults, so a request with no serialization parameters is byte-for-byte identical to before. NOTE: eXist's `expand-xincludes` is not yet supported here — as of eXist 7.0.0-beta3 it cannot be honored for node-to-string serialization, so it is intentionally omitted rather than silently expanding.",
+            "description": "The resource's content. `Content-Type` is the stored mime type. A binary resource streams as raw bytes; an XML/text resource is serialized with the requested parameters (omitted params fall through to the conf.xml defaults).",
             "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "path": {
-                      "type": "string",
-                      "description": "Full DB path"
-                    },
-                    "binary": {
-                      "type": "boolean",
-                      "description": "Whether the resource is stored as binary"
-                    },
-                    "content": {
-                      "type": "string",
-                      "description": "Resource content (text or base64-encoded for binary)"
-                    },
-                    "mime-type": {
-                      "type": "string",
-                      "description": "MIME type of the resource"
-                    }
-                  },
-                  "example": {
-                    "path": "/db/apps/myapp/index.xq",
-                    "binary": false,
-                    "content": "xquery version \"3.1\"; ...",
-                    "mime-type": "application/xquery"
-                  }
-                }
-              }
+              "*/*": { "schema": { "type": "string", "format": "binary" } }
             }
+          },
+          "400": {
+            "description": "Missing required parameter: path",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           },
           "404": {
             "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
           }
         }
       },
       "put": {
-        "summary": "Store resource",
+        "summary": "Store a resource from a raw request body (binary-safe)",
         "operationId": "db:store-resource",
-        "description": "Stores or updates a resource in the database. The parent collection must exist. When `mime-type` is omitted the server looks up the appropriate MIME type for the path's filename extension via eXist's `mime-types.xml` (e.g. `.xq` → `application/xquery`, `.svg` → `image/svg+xml`, `.html` → `text/html`). Clients only need to send `mime-type` when they want to override that mapping (e.g. force an `.html` file to be stored as `application/xhtml+xml`).",
+        "description": "Stores or updates a resource from the raw request body (binary-safe). The path is a query parameter; the body is the content. The parent collection must exist. The stored mime type comes from the optional `mime` query parameter; when omitted the server infers it from the path's filename extension via eXist's `mime-types.xml` (e.g. `.xq` → `application/xquery`, `.svg` → `image/svg+xml`). Pass `mime=application/octet-stream` to force raw-byte storage of content that would otherwise be parsed (e.g. malformed HTML). The request's own `Content-Type` is transport only and is not used as the stored mime.",
         "tags": [
           "Database"
         ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Target DB path for the resource (decoded UTF-8)"
+          },
+          {
+            "name": "mime",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Override the stored mime type. Omit to infer from the filename extension; set application/octet-stream to force raw-byte storage."
+          }
+        ],
         "requestBody": {
           "required": true,
+          "description": "The raw resource content (the request Content-Type is transport only; use the `mime` query parameter to set the stored mime).",
           "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "path",
-                  "content"
-                ],
-                "properties": {
-                  "path": {
-                    "type": "string",
-                    "description": "Target DB path for the resource"
-                  },
-                  "content": {
-                    "type": "string",
-                    "description": "Resource content to store"
-                  },
-                  "mime-type": {
-                    "type": "string",
-                    "description": "MIME type to store the resource as. When omitted the server looks up the path's filename extension in `mime-types.xml`. Supply this only to override that mapping."
-                  }
-                }
-              }
-            }
+            "*/*": { "schema": { "type": "string", "format": "binary" } }
           }
         },
         "responses": {
-          "200": {
-            "description": "Resource updated",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "stored": {
-                      "type": "string",
-                      "description": "DB path of the stored resource"
-                    },
-                    "runPath": {
-                      "type": "string",
-                      "description": "HTTP-accessible path"
-                    }
-                  },
-                  "example": {
-                    "stored": "/db/apps/myapp/test.xml",
-                    "runPath": "/exist/apps/myapp/test.xml"
-                  }
-                }
-              }
-            }
-          },
           "201": {
             "description": "Resource created",
             "content": {
@@ -1670,23 +1593,29 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "stored": {
-                      "type": "string"
-                    },
-                    "runPath": {
-                      "type": "string"
-                    }
+                    "path": { "type": "string", "description": "Canonical decoded DB path of the stored resource (may differ from the request path if the name was normalized)" }
                   },
-                  "example": {
-                    "stored": "/db/apps/myapp/test.xml",
-                    "runPath": "/exist/apps/myapp/test.xml"
-                  }
+                  "example": { "path": "/db/apps/myapp/test.xml" }
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Resource overwritten",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "path": { "type": "string", "description": "Canonical decoded DB path of the stored resource" }
+                  },
+                  "example": { "path": "/db/apps/myapp/test.xml" }
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request — missing path or content",
+            "description": "Bad request — missing path, a path outside /db, or a store failure",
             "content": {
               "application/json": {
                 "schema": {
@@ -1772,7 +1701,7 @@
       "post": {
         "summary": "Create collection",
         "operationId": "db:create-collection",
-        "description": "Creates a new collection in the database. Parent collections are created automatically if they do not exist.",
+        "description": "Creates a new collection. By default the parent collection must already exist — a missing parent returns 409. Pass `recursive: true` to create any missing ancestor collections (mkdir -p).",
         "tags": [
           "Database"
         ],
@@ -1789,6 +1718,11 @@
                   "path": {
                     "type": "string",
                     "description": "Full DB path for the new collection"
+                  },
+                  "recursive": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Create any missing ancestor collections (mkdir -p). Default false: the parent collection must already exist."
                   }
                 }
               }
@@ -1817,6 +1751,16 @@
           },
           "400": {
             "description": "Bad request — missing or invalid path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Parent collection does not exist (pass recursive=true to create intermediate collections)",
             "content": {
               "application/json": {
                 "schema": {
