@@ -6,6 +6,7 @@ package org.exist.xquery.modules.openapi.cursor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.exist.dom.QName;
 import org.exist.source.Source;
 import org.exist.source.StringSource;
 import org.exist.storage.XQueryPool;
@@ -18,8 +19,11 @@ import org.exist.xquery.XQuery;
 import org.exist.xquery.XQueryContext;
 import org.exist.xquery.functions.map.MapType;
 import org.exist.xquery.value.AnyURIValue;
+import org.exist.xquery.value.AtomicValue;
 import org.exist.xquery.value.IntegerValue;
+import org.exist.xquery.value.Item;
 import org.exist.xquery.value.Sequence;
+import org.exist.xquery.value.SequenceIterator;
 import org.exist.xquery.value.StringValue;
 import org.exist.xquery.value.Type;
 
@@ -82,6 +86,24 @@ public class Eval extends BasicFunction {
                                     specific document — typically the document an editor \
                                     client currently has open. When absent, the expression \
                                     sees no context item.""")
+                    ),
+                    arity(
+                            param("expression", Type.STRING, "The XQuery expression to evaluate."),
+                            optParam("module-load-path", Type.STRING, """
+                                    The module load path. \
+                                    Imports will be resolved relative to this. \
+                                    Use xmldb:exist:///db or /db for database-stored modules."""),
+                            optParam("context-item", Type.ITEM, """
+                                    The context item against which the expression will \
+                                    be evaluated. When absent, the expression sees no \
+                                    context item."""),
+                            optParam("variables", Type.MAP_ITEM, """
+                                    External-variable bindings. Each entry's key is a \
+                                    variable's local name (no namespace); its value is \
+                                    bound to the matching `declare variable $name external;` \
+                                    in the expression, with the declared type enforced \
+                                    strictly. Keys with no matching external declaration \
+                                    are ignored.""")
                     )
             )
     );
@@ -101,6 +123,10 @@ public class Eval extends BasicFunction {
         // currently-open document here so users can run queries against
         // their working content.
         final Sequence contextItem = optionalSequence(args, 2);
+        // Optional external-variable bindings (cursor:eval/4). Each map entry binds a
+        // `declare variable $name external;` in the expression; keys with no matching
+        // external declaration are harmlessly ignored by the engine.
+        final MapType variables = optionalMap(args, 3);
 
         // Borrow a compiled query for this expression from the shared
         // XQueryPool if one is available; otherwise compile fresh. Same
@@ -158,6 +184,10 @@ public class Eval extends BasicFunction {
                     compiled = xqueryService.compile(evalContext, source);
                     compileTime = System.currentTimeMillis() - compileStart;
                 }
+
+                // Bind external variables onto the execution context after compile and
+                // before execute (the engine resolves `external` declarations at runtime).
+                bindVariables(evalContext, variables);
 
                 final long evalStart = System.currentTimeMillis();
                 final Sequence result = xqueryService.execute(context.getBroker(), compiled, contextItem);
@@ -235,6 +265,38 @@ public class Eval extends BasicFunction {
             return args[index];
         }
         return null;
+    }
+
+    private MapType optionalMap(final Sequence[] args, final int index) throws XPathException {
+        if (getArgumentCount() > index && !args[index].isEmpty()
+                && args[index].itemAt(0) instanceof MapType map) {
+            return map;
+        }
+        return null;
+    }
+
+    /**
+     * Binds each entry of {@code variables} as an external variable on {@code ctx}: the key is the
+     * variable's local name (no namespace) and the value is its bound value. Entries with no matching
+     * {@code declare variable $name external;} in the expression are ignored by the engine.
+     */
+    private void bindVariables(final XQueryContext ctx, final MapType variables) throws XPathException {
+        if (variables == null) {
+            return;
+        }
+        final SequenceIterator keys = variables.keys().iterate();
+        while (keys.hasNext()) {
+            final Item key = keys.nextItem();
+            final String name = key.getStringValue();
+            try {
+                // Values are already XDM (the caller built the map); declareVariable binds
+                // each to a matching `external` var, enforces its declared type, and leaves
+                // an unmatched name unused — the same as eXist's XML-RPC/REST query paths.
+                ctx.declareVariable(new QName(name), variables.get((AtomicValue) key));
+            } catch (final QName.IllegalQNameException e) {
+                throw new XPathException(this, "Invalid external-variable name: '" + name + "'");
+            }
+        }
     }
 
     private static XmldbURI resolveScope(final String moduleLoadPath) {

@@ -155,6 +155,9 @@ declare function query:execute($request as map(*)) {
     let $module-load-path := $body?module-load-path
     let $context-item-xml := $body?context-item
     let $context-path := $body?context-path
+    (: Optional external-variable bindings: a map of name → value, each bound to a
+     : `declare variable $name external;` in the expression. :)
+    let $variables := $body?variables
     return
         if (empty($expression) or $expression = "")
         then
@@ -180,7 +183,9 @@ declare function query:execute($request as map(*)) {
                          : cursor:eval call site (useless for an editor marker). Caught here,
                          : the description still carries the user-relative position. :)
                         try {
-                            if (exists($context-item)) then
+                            if ($variables instance of map(*) and map:size($variables) gt 0) then
+                                cursor:eval($expression, $mlp, $context-item, $variables)
+                            else if (exists($context-item)) then
                                 cursor:eval($expression, $mlp, $context-item)
                             else if (exists($mlp)) then
                                 cursor:eval($expression, $mlp)

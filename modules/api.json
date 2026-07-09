@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "eXist-db Platform API",
-    "version": "0.12.0",
+    "version": "0.13.0",
     "description": "Unified REST API for eXist-db: query execution, language services, database management, user management, package management, search, and cross-app linking.",
     "license": {
       "name": "LGPL-2.1",
@@ -409,6 +409,15 @@
                   "context-path": {
                     "type": "string",
                     "description": "DB path (e.g. `/db/apps/foo/data.xml`) to a document to use as the context item. Convenience shortcut over `context-item` when the editor's current document is already in the database. Takes precedence over `context-item`."
+                  },
+                  "variables": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "External-variable bindings: each property name is a variable's local name (no namespace), bound to the matching `declare variable $name external;` in the expression. JSON values map to XDM by kind — string→xs:string, number→xs:double, boolean→xs:boolean, array→array(*), object→map(*) — so an array value is read with array accessors (e.g. `$x?*`, or `array:flatten($x)` for its members). A typed external declaration (e.g. `as xs:integer`) is matched strictly: pass a conforming value or cast in-query (`xs:integer($n)`). A name with no matching external declaration is ignored, as eXist's own XML-RPC and REST query interfaces do.",
+                    "example": {
+                      "project-id": "frus1981-88v36",
+                      "div-ids": ["d278", "d300"]
+                    }
                   }
                 }
               }
