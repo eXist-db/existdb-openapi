@@ -3775,9 +3775,38 @@
               "default": 0
             },
             "description": "Zero-based index of the first result to return (for paging)"
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Restrict the query to a single named field (a `field` value from GET /api/search/fields), instead of the default shared site-content/site-title query. Subject to the same field-level security: a field the caller may not see returns 403."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": "Collection path(s) to search under, recursive (defaults to the sitewide /db/apps). Same scope semantics as GET /api/search/fields; may be repeated to search several collections."
+          },
+          {
+            "name": "facet",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "description": "Facet drill-down filter, '<dimension>:<value>' (e.g. site-app:docs). Repeatable: the same dimension repeated combines with OR, different dimensions with AND. ES post_filter semantics — selecting a value narrows the returned results but the facet bucket counts stay stable (they reflect the base query). The app/section parameters are shortcuts for facet=site-app:… / facet=site-section:…"
           }
         ],
         "responses": {
+          "403": {
+            "description": "The requested field is not available to the caller (field-level security)."
+          },
           "200": {
             "description": "Search results with total count, relevance scores, and KWIC-highlighted snippets",
             "content": {
@@ -3882,6 +3911,140 @@
                         "highlights": [
                           "<span>...eXist-db's <mark>URL</mark> <mark>rewriting</mark> lets you map...</span>"
                         ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/search/fields": {
+      "get": {
+        "summary": "Discover searchable fields",
+        "operationId": "fields:list",
+        "description": "Lists the searchable fields and facets configured under a collection scope, with each field's contract (kind, indexed element(s), analyzer, type, returnable). The result is filtered by a field-level-security policy keyed off the caller's identity: public site-* fields are visible to everyone (including guests); other fields require authentication. Lets a client discover what it can search (and how) before issuing a query to /api/search.",
+        "tags": [
+          "Search"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "/db/apps"
+            },
+            "description": "Collection path to introspect (recursive). Defaults to /db/apps (site-wide)."
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "If given, return only this field's contract."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The fields/facets visible to the caller under the scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scope": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "The collection path(s) introspected"
+                    },
+                    "user": {
+                      "type": "string",
+                      "description": "The caller the policy was evaluated for"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "description": "Number of fields/facets visible to the caller"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "description": "One record per field/facet, ordered by kind then name",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "field": {
+                            "type": "string",
+                            "description": "Field name or facet dimension"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "field",
+                              "facet",
+                              "vector"
+                            ],
+                            "description": "Whether it is a text field, a facet dimension, or a vector field"
+                          },
+                          "elements": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "description": "The element(s) the field is indexed on, across the scope"
+                          },
+                          "analyzer": {
+                            "description": "Effective analyzer class (text fields only): a single string, or an array when the field is indexed with more than one analyzer across elements"
+                          },
+                          "type": {
+                            "type": "string",
+                            "description": "Declared XDM type (text fields only), e.g. xs:string"
+                          },
+                          "returnable": {
+                            "type": "boolean",
+                            "description": "Whether the stored value can be returned (text fields only)"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "scope": [
+                      "/db/apps"
+                    ],
+                    "user": "guest",
+                    "total": 3,
+                    "fields": [
+                      {
+                        "field": "site-app",
+                        "kind": "facet",
+                        "elements": [
+                          "page"
+                        ]
+                      },
+                      {
+                        "field": "site-content",
+                        "kind": "field",
+                        "elements": [
+                          "page"
+                        ],
+                        "analyzer": "org.apache.lucene.analysis.standard.StandardAnalyzer",
+                        "type": "xs:string",
+                        "returnable": true
+                      },
+                      {
+                        "field": "site-title",
+                        "kind": "field",
+                        "elements": [
+                          "page"
+                        ],
+                        "analyzer": "org.apache.lucene.analysis.standard.StandardAnalyzer",
+                        "type": "xs:string",
+                        "returnable": true
                       }
                     ]
                   }
