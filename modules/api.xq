@@ -26,6 +26,7 @@ import module namespace db="http://exist-db.org/api/db" at "db.xqm";
 import module namespace users="http://exist-db.org/api/users" at "users.xqm";
 import module namespace packages="http://exist-db.org/api/packages" at "packages.xqm";
 import module namespace search="http://exist-db.org/api/search" at "search.xqm";
+import module namespace fields="http://exist-db.org/api/search/fields" at "fields.xqm";
 import module namespace site="http://exist-db.org/api/site" at "site.xqm";
 
 (:~

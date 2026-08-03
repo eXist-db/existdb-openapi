@@ -21,9 +21,15 @@ xquery version "3.1";
 module namespace search="http://exist-db.org/api/search";
 
 import module namespace site="http://exist-db.org/api/site" at "site.xqm";
+(: FLS policy only (no ft:fields) — so /api/search compiles on a stock eXist :)
+import module namespace fpol="http://exist-db.org/api/search/field-policy" at "field-policy.xqm";
+import module namespace roaster="http://e-editiones.org/roaster";
 import module namespace kwic="http://exist-db.org/xquery/kwic";
 
 declare namespace output="http://www.w3.org/2010/xslt-xquery-serialization";
+(: Vector module (the embedding/kNN extension). Static dependency: this build
+ : targets the vector-capable integration instance, not a stock eXist. :)
+declare namespace vector="http://exist-db.org/xquery/vector";
 
 declare option output:method "json";
 declare option output:media-type "application/json";
@@ -45,6 +51,16 @@ declare variable $search:title-boost := 3;
  :)
 declare %private function search:escape($q as xs:string) as xs:string {
     replace($q, '([+\-&amp;|!(){}\[\]\^"~*?:\\/])', '\\$1')
+};
+
+(:~
+ : Escape a Lucene FIELD NAME for use as a field selector in a query string. A
+ : field name may itself contain a colon (e.g. the xqdoc:function discovery
+ : fields); escape the colon and backslash so the parser reads the whole name as
+ : the field, with the separating colon added by the caller.
+ :)
+declare %private function search:field-selector($field as xs:string) as xs:string {
+    replace($field, '([:\\])', '\\$1')
 };
 
 (:~
@@ -85,6 +101,101 @@ declare %private function search:facet-counts($hits as node()*, $dimension as xs
 };
 
 (:~
+ : Vector-similarity branch of /api/search.
+ : GET /api/search?vector=<field>&similar=<text>&k=<n>[&scope=<path>]
+ :
+ : Discovery-driven: the field's embedding model AND indexed element are read from
+ : its ft:fields record (the `model` and `element` properties, per
+ : eXist-db/exist#6459), so the client sends only {field, text}. The text is
+ : embedded with that model and run as a kNN over the field's element; hits come
+ : back in the same ES-shaped envelope as keyword search, plus `field`/`model`/
+ : `max-score`.
+ :
+ : Notes:
+ : - Uses the node-arg form ft:query-vector(collection($scope)//<element>, vec, k),
+ :   which applies a true cross-document top-k with k authoritative server-side; the
+ :   field form ft:query-field-vector is evaluated per-document in a path step
+ :   (ignores k, scales poorly — eXist-core bug, fix tracked separately).
+ : - ft:score ordering + subsequence is kept for explicit, robust ranking.
+ :)
+declare %private function search:vector-query(
+    $field as xs:string, $similar as xs:string?, $scope as xs:string+,
+    $k as xs:integer, $groups as xs:string*, $is-dba as xs:boolean
+) {
+    if (empty($similar) or $similar = "")
+    then roaster:response(400, "application/json",
+        map { "error": "Missing required parameter for vector search: similar" })
+    (: Field-level security: the same policy /api/search/fields applies. :)
+    else if (not(fpol:visible($field, $groups, $is-dba)))
+    then roaster:response(403, "application/json",
+        map { "error": "Field not available: " || $field })
+    else
+        (: Resolve the field's embedding model from its ft:fields record. Bind $r
+           explicitly (avoid ?key in a predicate — eXist mis-handles the cardinality
+           for >1 item, XPTY0004). :)
+        let $vrec := (for $r in ft:fields($scope) where $r?kind = "vector" and $r?field = $field return $r)[1]
+        let $model := $vrec?model
+        let $element := $vrec?element
+        return
+            if (empty($vrec))
+            then roaster:response(404, "application/json",
+                map { "error": "Vector field not found in scope: " || $field })
+            else if (empty($model) or $model = "")
+            then roaster:response(400, "application/json",
+                map { "error": "Field '" || $field || "' has no embedding model; it cannot embed query text (index it with a model, or query with a precomputed vector)" })
+            else
+                let $vec := vector:embed($similar, $model)
+                (: Use the node-arg form ft:query-vector(nodes, vec, k), which applies a
+                   true cross-document top-k with k authoritative server-side. The field
+                   form collection($scope)/ft:query-field-vector($field, ...) is evaluated
+                   per-document (a 1-doc kNN per node, unioned), so it both ignores k and
+                   scales poorly — a known eXist-core bug, fix tracked separately. We
+                   target the vector field's indexed element (from ft:fields discovery);
+                   ft:query-vector resolves the field from that element's index config.
+                   Caveat: if an element carries >1 vector field this targets the first,
+                   not necessarily $field — fine for one-field-per-element corpora; when
+                   the core ft:query-field-vector fix lands, switch back to the
+                   field-targeted form for precise multi-field selection. :)
+                let $hits := ft:query-vector(collection($scope)//*[local-name() = $element], $vec, $k)
+                let $ranked :=
+                    for $h in $hits
+                    let $score := ft:score($h)
+                    order by $score descending
+                    return map { "hit": $h, "score": $score, "uri": document-uri(root($h)) }
+                let $top := subsequence($ranked, 1, $k)
+                return map {
+                    "query": $similar,
+                    "field": $field,
+                    "model": $model,
+                    (: total = results returned (= k, or fewer if the corpus is
+                       smaller). NB: the kNN's own k currently over-returns a
+                       candidate pool — tracked by the eXist-core fix to
+                       ft:query-field-vector — so count the post-rank/subsequence
+                       slice, not the raw pool. :)
+                    "total": count($top),
+                    "k": $k,
+                    "max-score": ($top[1]?score, 0)[1],
+                    "results": array {
+                        for $m in $top
+                        let $hit := $m?hit
+                        let $doc-uri := $m?uri
+                        let $app := replace($doc-uri, "^/db/apps/([^/]+)/.*$", "$1")
+                        return map {
+                            "uri": $doc-uri,
+                            "path": $doc-uri,
+                            "title": (string($hit/ancestor-or-self::*[title][1]/title)[. ne ""], "(untitled)")[1],
+                            "app": $app,
+                            "url": site:resolve-link($app, replace($doc-uri, "^/db/apps/[^/]+", "")),
+                            "score": $m?score,
+                            "snippet": serialize(
+                                <span>{ substring(string-join($hit//text(), " "), 1, 200) }</span>,
+                                map { "method": "xml" })
+                        }
+                    }
+                }
+};
+
+(:~
  : Sitewide search over the shared `site-content` field.
  : GET /api/search?q=array:count&app=docs&section=functions&limit=20&offset=0
  :
@@ -101,43 +212,102 @@ declare function search:query($request as map(*)) {
     let $q := $request?parameters?q
     let $app-filter := $request?parameters?app
     let $section-filter := $request?parameters?section
+    (: field: restrict the query to one named field (a /api/search/fields field
+       value). scope: collection path(s) to search under, recursive (defaults to
+       the sitewide /db/apps). Both optional; omitting them is today's behavior. :)
+    let $field := $request?parameters?field[. ne ""]
+    (: roaster hands a repeatable (array-typed) query param back as an XQuery
+       array(*) when several values are given, or an atomic when one is — unwrap
+       to a plain sequence either way. :)
+    let $scope-list := let $raw := $request?parameters?scope
+                       return if ($raw instance of array(*)) then $raw?* else $raw
+    let $scope :=
+        if (exists($scope-list[. ne ""]))
+        then $scope-list[. ne ""]
+        else "/db/apps"
+    let $user := $request?user
+    let $groups := ($user?groups, "guest")
+    let $is-dba := ($user?dba, false())[1]
     let $limit := ($request?parameters?limit, 20)[1] cast as xs:integer
     let $offset := ($request?parameters?offset, 0)[1] cast as xs:integer
+    (: vector: switch to similarity search over a named vector field. similar: the
+       query text to embed (server resolves the field's model). Mutually exclusive
+       with the keyword path — when present, q is not required. :)
+    let $vector-field := $request?parameters?vector[. ne ""]
+    (: clamp k to [1, 100]: default 10, hard cap 100 (a kNN result count, not paging) :)
+    let $k := max((1, min((($request?parameters?k, 10)[1] cast as xs:integer, 100))))
     return
-        if (empty($q) or $q = "")
+        if (exists($vector-field))
+        then search:vector-query($vector-field, $request?parameters?similar, $scope, $k, $groups, $is-dba)
+        else if (empty($q) or $q = "")
         then map { "error": "Missing required parameter: q" }
+        else if (exists($field) and not(fpol:visible($field, $groups, $is-dba)))
+        (: Field-level security: the same policy /api/search/fields applies — a
+           field the caller may not see must not be queryable from this connection. :)
+        then roaster:response(403, "application/json", map { "error": "Field not available: " || $field })
         else
             let $escaped := search:escape($q)
-            (: Field-scoped query string: body + boosted title. Scope to the
-               shared field so only contributing result-units match. :)
+            (: Query string. With ?field, restrict to that one field; otherwise the
+               default shared-field query (body + boosted title). :)
             let $query-string :=
-                "site-content:(" || $escaped || ") OR site-title:(" || $escaped || ")^" || $search:title-boost
-            (: Facet drill-down filters (app/section) — narrow without leaving
-               the shared field; ES "filter context". :)
+                if (exists($field))
+                then search:field-selector($field) || ":(" || $escaped || ")"
+                else "site-content:(" || $escaped || ") OR site-title:(" || $escaped || ")^" || $search:title-boost
+            (: Facet filter — ES post_filter semantics: selecting a value narrows the
+               returned HITS but NOT the bucket counts, so the counts reflect the base
+               query and stay stable as the user drills. Sources: ?facet=<dim>:<value>
+               (repeatable; same dim -> OR, different dims -> AND) plus the app/section
+               shortcuts (= site-app / site-section). :)
+            let $facet-list := let $raw := $request?parameters?facet
+                               return if ($raw instance of array(*)) then $raw?* else $raw
+            let $facet-pairs := (
+                for $f in $facet-list[. ne ""]
+                let $d := substring-before($f, ":")
+                let $v := substring-after($f, ":")
+                where $d ne "" and $v ne ""
+                return map { "d": $d, "v": $v },
+                if (exists($app-filter) and $app-filter ne "") then map { "d": "site-app", "v": $app-filter } else (),
+                if (exists($section-filter) and $section-filter ne "") then map { "d": "site-section", "v": $section-filter } else ()
+            )
+            (: group values by dimension. NB: avoid ?key in predicates/simple-maps
+               (e.g. $pairs[?d = $x]) — eXist mis-handles the cardinality (fine for
+               one item, XPTY0004 for several); bind $p and look up explicitly. :)
+            let $facet-dims := distinct-values(for $p in $facet-pairs return $p?d)
             let $facet-filter :=
-                map:merge((
-                    if (exists($app-filter) and $app-filter ne "") then map { "site-app": $app-filter } else (),
-                    if (exists($section-filter) and $section-filter ne "") then map { "site-section": $section-filter } else ()
-                ))
-            let $options :=
-                map:merge((
-                    map {
-                        "default-operator": "and",
-                        "filter-rewrite": "yes",
-                        (: load the producer's display fields so ft:field can return them :)
-                        "fields": ("site-title", "site-url")
-                    },
-                    if (map:size($facet-filter) gt 0) then map { "facets": $facet-filter } else ()
-                ))
-            (: Match at document-root level (collection(…)/*) — a single-step
-               axis preserves ft:score for field queries, unlike //*. :)
-            let $hits := collection("/db/apps")/*[ft:query(., $query-string, $options)]
-            (: Facet counts (computed while the Lucene context is intact). :)
+                map:merge(
+                    for $d in $facet-dims
+                    let $vals := distinct-values(for $p in $facet-pairs where $p?d eq $d return $p?v)
+                    return map { $d: $vals }
+                )
+            let $base-options :=
+                map {
+                    "default-operator": "and",
+                    "filter-rewrite": "yes",
+                    (: load the producer's display fields so ft:field can return them :)
+                    "fields": ("site-title", "site-url")
+                }
+            (: Base result set (no facet filter) — drives the stable facet counts.
+               Match at document-root level (collection(…)/*): a single-step axis
+               preserves ft:score for field queries, unlike //*. Scope is the caller's
+               ?scope (recursive) or the sitewide default. :)
+            let $base-hits := collection($scope)/*[ft:query(., $query-string, $base-options)]
             let $facets :=
                 map {
-                    "site-app": search:facet-counts($hits, "site-app"),
-                    "site-section": search:facet-counts($hits, "site-section")
+                    "site-app": search:facet-counts($base-hits, "site-app"),
+                    "site-section": search:facet-counts($base-hits, "site-section")
                 }
+            (: Post-filter: when a facet is selected, narrow the hits via Lucene
+               drill-down; otherwise the hits are the base set. The facets-option
+               query does NOT collect per-match offsets, so its nodes can't drive
+               ft:highlight-field-matches/KWIC — intersect the drill set with
+               $base-hits (which carry the match data) so the returned nodes are the
+               match-bearing ones, narrowed to the facet selection. (Identity
+               intersection; preserves the post_filter narrowing and the base-query
+               facet counts.) :)
+            let $hits :=
+                if (map:size($facet-filter) gt 0)
+                then $base-hits intersect collection($scope)/*[ft:query(., $query-string, map:put($base-options, "facets", $facet-filter))]
+                else $base-hits
             (: Rank by score, dedup per document (highest-scoring hit wins). :)
             let $ranked :=
                 for $hit in $hits
