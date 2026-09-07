@@ -8,6 +8,6 @@
   },
   "devDependencies": {
     "@existdb/xst": "^4.1.2",
-    "cypress": "^15.21.1"
+    "cypress": "^16.0.0"
   }
 }
